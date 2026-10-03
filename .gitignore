@@ -4,3 +4,6 @@ release
 dist
 *.log
 .DS_Store
+*.pem
+.erp-license/
+license.key

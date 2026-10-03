@@ -63,12 +63,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }
 
   const setProfile = useCallback(async (profile: ProfileId) => {
-    if (window.api) {
-      const r = await window.api.invoke("config:setProfile", { profile })
-      if (!r.ok) return r.error.message
-      setState(r.data)
-      return null
-    }
+    if (window.api) return "The business type is set by your license and cannot be changed here."
     applyLocal({ profile, flags: { ...profiles[profile].flags } })
     return null
   }, [])

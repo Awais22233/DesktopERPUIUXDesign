@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
-import { handle } from "./ipc"
+import { handle, setLicenseGuard } from "./ipc"
 import { initLogger, log } from "./logger"
 import { BackupManager } from "./backupManager"
 import { integrityCheck, openDatabase, type DB } from "./db/connection"
@@ -14,7 +14,12 @@ import { createBackup } from "./db/backup"
 import { seedRoles } from "./services/auth"
 import { ensureConfig, getConfig, setFlag, setProfile } from "./services/config"
 import { ensureWalkInParty } from "./services/masterData"
-import { FLAG_KEYS, type FlagKey } from "@shared/profiles"
+import { FLAG_KEYS, profiles, type FlagKey } from "@shared/profiles"
+import { businessSchema, ensureBusinessName, getBusiness, setBusiness } from "./services/business"
+import { evaluateLicense, normalizeKey, readLastSeen, readStoredKey, storeKey, touchLastSeen } from "./license/license"
+import { getMachineId } from "./license/machine"
+import { PUBLIC_KEY_PEM } from "./license/publicKey"
+import type { LicenseStatus } from "@shared/ipc"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SMOKE = process.env.ERP_SMOKE === "1"
@@ -110,11 +115,66 @@ async function startDatabase(): Promise<void> {
   setInterval(() => void backups.runIfDue(), 3600 * 1000).unref()
 }
 
+let machineId: string | null = null
+let licenseCache: { at: number; status: LicenseStatus } | null = null
+
+/** Development only: `pnpm dev` can skip activation. A packaged build ignores this completely. */
+const devBypass = () => !app.isPackaged && process.env.ERP_DEV_LICENSE_BYPASS === "1"
+
+function computeLicense(keyText: string | null): LicenseStatus {
+  machineId ??= getMachineId()
+  if (devBypass()) return { state: "valid", machineId, message: "Development mode", client: "Development", profile: getConfig(db).profile }
+  const now = new Date()
+  const status = evaluateLicense(keyText, { publicKey: PUBLIC_KEY_PEM, machineId, now, lastSeen: readLastSeen(dataDir) })
+  if (status.state !== "valid") return status
+
+  // The license decides the business type. A copy of the data from another kind of business is refused.
+  const cfg = getConfig(db)
+  if (cfg.profile !== status.profile) {
+    try {
+      setProfile(db, null, status.profile!)
+    } catch {
+      return {
+        ...status,
+        state: "wrong_profile",
+        message: `This license is for "${profiles[status.profile!].name}", but the data on this computer belongs to "${profiles[cfg.profile].name}".`,
+      }
+    }
+  }
+  touchLastSeen(dataDir, now)
+  ensureBusinessName(db, status.client ?? "My Business")
+  return status
+}
+
+function currentLicense(force = false): LicenseStatus {
+  if (!force && licenseCache && Date.now() - licenseCache.at < 60_000) return licenseCache.status
+  const status = computeLicense(readStoredKey(dataDir))
+  licenseCache = { at: Date.now(), status }
+  return status
+}
+
 function registerIpc(): void {
+  setLicenseGuard(() => currentLicense().state === "valid")
   const schemaVersion = () => (db.prepare("SELECT COALESCE(MAX(id),0) v FROM schema_migrations").get() as { v: number }).v
   handle("app:info", null, () => ({ version: app.getVersion(), dataDir, schemaVersion: schemaVersion(), packaged: app.isPackaged }))
   handle("config:get", null, () => getConfig(db))
-  handle("config:setProfile", z.object({ profile: z.enum(["cloth", "cosmetics"]) }), (p) => setProfile(db, null, p.profile))
+  handle("license:status", null, () => currentLicense())
+  handle("license:activate", z.object({ key: z.string().min(1, "Enter your license key").max(2000) }), (p) => {
+    const status = computeLicense(normalizeKey(p.key))
+    if (status.state === "valid") {
+      storeKey(dataDir, p.key)
+      licenseCache = { at: Date.now(), status }
+      log("info", `Activated for "${status.client}" (${status.licenseId})`)
+      win?.setTitle(getBusiness(db).name || "Wholesale ERP")
+    } else log("warn", `Activation refused: ${status.state}`)
+    return status
+  })
+  handle("business:get", null, () => getBusiness(db))
+  handle("business:set", businessSchema, (b) => {
+    const saved = setBusiness(db, null, b)
+    win?.setTitle(saved.name)
+    return saved
+  })
   handle("config:setFlag", z.object({ flag: z.enum(FLAG_KEYS as [FlagKey, ...FlagKey[]]), enabled: z.boolean() }), (p) => setFlag(db, null, p.flag, p.enabled))
   handle("backup:run", null, async () => ({ name: (await backups.run("manual")).split(/[\\/]/).pop()! }))
   handle("backup:list", null, () => backups.list())
@@ -139,6 +199,8 @@ function createWindow(): void {
       sandbox: true,
       nodeIntegration: false,
       webSecurity: true,
+      // No developer tools in the shipped application (they would expose the UI to tampering).
+      devTools: !app.isPackaged,
     },
   })
   win.once("ready-to-show", () => win?.show())
@@ -158,18 +220,30 @@ async function smoke(): Promise<void> {
   const w = win!
   await new Promise<void>((r) => w.webContents.once("did-finish-load", () => r()))
   await new Promise((r) => setTimeout(r, 1200))
-  const js = `(async () => ({
-    info: await window.api.invoke('app:info'),
-    config: await window.api.invoke('config:get'),
-    health: await window.api.invoke('health:get'),
-    bad: await window.api.invoke('config:setFlag', { flag: 'nope', enabled: true }),
-    hasNodeInRenderer: typeof require !== 'undefined' || typeof process !== 'undefined',
-    font: getComputedStyle(document.body).fontFamily,
-    nav: [...document.querySelectorAll('nav .nav-item span')].map(s => s.textContent),
-  }))()`
+  const key = JSON.stringify(process.env.ERP_SMOKE_LICENSE ?? "")
+  const js = `(async () => {
+    const api = window.api
+    const before = { status: await api.invoke('license:status'), config: await api.invoke('config:get'), business: await api.invoke('business:get') }
+    const bad = await api.invoke('license:activate', { key: 'ERP1.bad.key' })
+    const good = ${key} ? await api.invoke('license:activate', { key: ${key} }) : null
+    const after = good ? { config: await api.invoke('config:get'), business: await api.invoke('business:get'),
+      saved: await api.invoke('business:set', { name: 'Faraz Cloth House', tagline: 'Wholesale cloth', owner: 'Faraz', phone: '0300', email: '', address: 'Market', city: 'Ghotki', logo: '', invoiceFooter: 'Thanks' }),
+      badLogo: await api.invoke('business:set', { name: 'X', tagline: '', owner: '', phone: '', email: '', address: '', city: '', logo: 'javascript:alert(1)', invoiceFooter: '' }),
+      setProfileChannel: await api.invoke('config:setProfile', { profile: 'cosmetics' }).catch((e) => String(e.message)) } : null
+    return { before, bad, good, after, hasNodeInRenderer: typeof require !== 'undefined' || typeof process !== 'undefined', title: document.title,
+      nav: [...document.querySelectorAll('nav .nav-item span')].length, activationShown: !!document.querySelector('.activation-card'),
+      brand: document.querySelector('.brand-lockup strong, .sidebar-brand strong')?.textContent }
+  })()`
   const result = await w.webContents.executeJavaScript(js)
   const shot = process.env.ERP_SMOKE_SHOT
   if (shot) writeFileSync(shot, (await w.webContents.capturePage()).toPNG())
+  if (process.env.ERP_SMOKE_LICENSE && shot) {
+    // After activation, reload the way a restart would and capture the real application.
+    w.webContents.reload()
+    await new Promise<void>((r) => w.webContents.once("did-finish-load", () => r()))
+    await new Promise((r) => setTimeout(r, 1500))
+    writeFileSync(shot.replace(".png", "-after.png"), (await w.webContents.capturePage()).toPNG())
+  }
   console.log("SMOKE_RESULT " + JSON.stringify(result))
   await backups.run("close")
   db.close()

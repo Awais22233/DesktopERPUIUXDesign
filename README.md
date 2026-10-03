@@ -16,4 +16,10 @@ Specification: `docs/SRS_v2_2_Configurable_ERP_POS.pdf`. Architecture: `docs/ARC
 | `pnpm run build` | Production build into `out/` |
 | `pnpm run pack:win` | Build the Windows installer into `release/` (run on Windows or in CI) |
 
+## Licensing
+
+Each installation needs a license key bound to the computer. See `docs/LICENSING.md`
+(`pnpm license init`, `pnpm license issue ...`). For development, `ERP_DEV_LICENSE_BYPASS=1 pnpm dev` skips activation
+(ignored in packaged builds).
+
 Requires Node 22 and pnpm.

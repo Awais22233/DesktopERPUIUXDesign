@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { BrandMark, useBusiness } from "./business"
 import {
   ArrowLeft,
   ArrowRight,
@@ -1091,6 +1092,7 @@ export function InvoicePreview({
   onClose: () => void
 }) {
   const [layout, setLayout] = useState("A4 invoice")
+  const { business } = useBusiness()
   const receipt = !!collection
   return (
     <>
@@ -1114,20 +1116,16 @@ export function InvoicePreview({
         }`}
       >
         <div className="invoice-brand">
-          <div className="brand-mark">
-            <span />
-            <span />
-            <span />
-          </div>
+          <BrandMark logo={business.logo} />
           <div>
-            <Heading level={2}>Raza Textiles</Heading>
-            <p>Wholesale cloth merchants</p>
+            <Heading level={2}>{business.name}</Heading>
+            {business.tagline && <p>{business.tagline}</p>}
           </div>
         </div>
         <p className="invoice-address">
-          Shop 24, Azam Cloth Market, Lahore
+          {business.address}
           <br />
-          0300 1234567 · razatextiles@email.com
+          {[business.phone, business.email].filter(Boolean).join(" · ")}
         </p>
         <div className="invoice-title">
           <Heading level={3}>
@@ -1228,7 +1226,7 @@ export function InvoicePreview({
         <div className="invoice-note">
           {collection?.notes || "Please keep this document for your records."}
           <br />
-          Thank you for your business.
+          {business.invoiceFooter || "Thank you for your business."}
         </div>
         <div className="invoice-signature">
           <span>Customer signature</span>

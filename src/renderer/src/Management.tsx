@@ -1,4 +1,5 @@
 import { useConfig, profiles, featureMeta, type ProfileId } from "./config"
+import { BrandMark, useBusiness } from "./business"
 import { useRef, useState } from "react"
 import {
   ArrowDownLeft,
@@ -76,6 +77,7 @@ export function Reports({
   expenses: Expense[]
   collections: Collection[]
 }) {
+  const { business } = useBusiness()
   const [group, setGroup] = useState("Sales")
   const [query, setQuery] = useState("")
   const [from, setFrom] = useState("2025-06-01")
@@ -335,7 +337,7 @@ export function Reports({
       </div>
       <Panel
         title="Report details"
-        subtitle={`${range.from} to ${range.to} · Raza Textiles`}
+        subtitle={`${range.from} to ${range.to} · ${business.name}`}
       >
         {loading ? (
           <Loading />
@@ -534,6 +536,17 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
     "Security",
   ].filter((name) => name !== "Than sizes" || flags.than)
   const [section, setSection] = useState("Business setup")
+  const { business, saveBusiness } = useBusiness()
+  const [logoDraft, setLogoDraft] = useState(business.logo)
+  const logoInput = useRef<HTMLInputElement>(null)
+  const pickLogo = (file: File | undefined) => {
+    if (!file) return
+    if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) return notify("Please choose a PNG, JPG, WebP or SVG image.")
+    if (file.size > 300_000) return notify("The logo is too large. Please use an image under 300 KB.")
+    const reader = new FileReader()
+    reader.onload = () => setLogoDraft(String(reader.result))
+    reader.readAsDataURL(file)
+  }
   const [settings, setSettings] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(localStorage.getItem("raza-settings") || "{}")
@@ -543,6 +556,22 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
   })
   const save = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (section === "Business setup") {
+      const f = new FormData(e.currentTarget)
+      const text = (k: string) => String(f.get(k) ?? "")
+      void saveBusiness({
+        name: text("businessName"),
+        tagline: text("tagline"),
+        owner: text("owner"),
+        phone: text("phone"),
+        email: text("email"),
+        address: text("address"),
+        city: text("city"),
+        logo: logoDraft,
+        invoiceFooter: text("invoiceFooter"),
+      }).then((error) => notify(error ?? "Business details saved."))
+      return
+    }
     const next = {
       ...settings,
       ...Object.fromEntries(
@@ -589,54 +618,55 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
               {section === "Business setup" ? (
                 <>
                   <div className="business-logo-edit">
-                    <div className="brand-mark">
-                      <span />
-                      <span />
-                      <span />
-                    </div>
+                    <BrandMark logo={logoDraft} />
                     <div>
-                      <strong>Raza Textiles</strong>
-                      <span>
-                        Business identity used on invoices and statements
-                      </span>
+                      <strong>{business.name}</strong>
+                      <span>Business identity used on invoices and statements</span>
+                      <div className="logo-actions">
+                        <Button type="button" onClick={() => logoInput.current?.click()}>
+                          Upload logo
+                        </Button>
+                        {logoDraft && (
+                          <Button type="button" onClick={() => setLogoDraft("")}>
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                      <input
+                        ref={logoInput}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        hidden
+                        onChange={(e) => {
+                          pickLogo(e.target.files?.[0])
+                          e.target.value = ""
+                        }}
+                      />
                     </div>
                   </div>
                   <Field label="Business name" required>
-                    <Input
-                      name="businessName"
-                      required
-                      defaultValue={settings.businessName || "Raza Textiles"}
-                    />
+                    <Input name="businessName" required maxLength={80} defaultValue={business.name} />
+                  </Field>
+                  <Field label="Tagline (shown under the name)">
+                    <Input name="tagline" maxLength={80} placeholder="e.g. Wholesale cloth merchants" defaultValue={business.tagline} />
                   </Field>
                   <div className="form-grid">
                     <Field label="Owner name">
-                      <Input
-                        name="owner"
-                        defaultValue={settings.owner || "Ahmed Ali"}
-                      />
+                      <Input name="owner" defaultValue={business.owner} />
                     </Field>
                     <Field label="Contact number">
-                      <Input
-                        name="phone"
-                        defaultValue={settings.phone || "0300 1234567"}
-                      />
+                      <Input name="phone" defaultValue={business.phone} />
                     </Field>
                   </div>
+                  <Field label="Email">
+                    <Input name="email" type="email" defaultValue={business.email} />
+                  </Field>
                   <Field label="Business address">
-                    <Textarea
-                      name="address"
-                      rows={2}
-                      defaultValue={
-                        settings.address || "Shop 24, Azam Cloth Market, Lahore"
-                      }
-                    />
+                    <Textarea name="address" rows={2} defaultValue={business.address} />
                   </Field>
                   <div className="form-grid">
                     <Field label="City">
-                      <Input
-                        name="city"
-                        defaultValue={settings.city || "Lahore"}
-                      />
+                      <Input name="city" defaultValue={business.city} />
                     </Field>
                     <Field label="Currency">
                       <Select name="currency">
@@ -644,16 +674,19 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
                       </Select>
                     </Field>
                   </div>
-                  <Field label="Date format">
-                    <Select name="dateFormat">
-                      <option>DD MMM YYYY</option>
-                      <option>DD/MM/YYYY</option>
-                    </Select>
+                  <Field label="Invoice footer note">
+                    <Input name="invoiceFooter" maxLength={200} placeholder="e.g. Goods once sold will not be returned" defaultValue={business.invoiceFooter} />
                   </Field>
                 </>
               ) : section === "Features" ? (
                 <>
-                  <Field label="Business profile">
+{window.api ? (
+                    <Field label="Business type">
+                      <Input value={profiles[profile].name} readOnly />
+                      <small className="muted">Set by your license. Contact your software provider to change it.</small>
+                    </Field>
+                  ) : (
+                                      <Field label="Business profile">
                     <Select
                       value={profile}
                       onChange={async (e) => {
@@ -669,6 +702,7 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
                       ))}
                     </Select>
                   </Field>
+                  )}
                   <div className="info-notice">
                     <Package size={17} />
                     Turning a feature off hides its screens and fields. Existing

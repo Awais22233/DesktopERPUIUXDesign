@@ -20,3 +20,10 @@ nsis:
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
+# Hardening of the shipped executable.
+electronFuses:
+  runAsNode: false                          # the app binary cannot be used as a general Node interpreter
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false      # no --inspect debugging of the shipped app
+  enableEmbeddedAsarIntegrityValidation: true  # edited app code is detected and refused
+  onlyLoadAppFromAsar: true

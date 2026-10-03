@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useConfig, type FlagKey } from "./config"
+import { BrandMark, nameParts, useBusiness } from "./business"
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -376,6 +377,7 @@ const pageFlags: Record<string, FlagKey> = { Recovery: "recovery" }
 
 export default function App() {
   const { isEnabled } = useConfig()
+  const { business } = useBusiness()
   const [store, setStore] = useState<Store>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("raza-workspace") || "null")
@@ -2311,16 +2313,13 @@ export default function App() {
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <Action className="brand" onClick={() => navigate("Dashboard")}>
-          <span className="brand-mark">
-            <span />
-            <span />
-            <span />
-          </span>
+          <BrandMark logo={business.logo} />
           <div>
             <strong>
-              RAZA<span>TEXTILES</span>
+              {nameParts(business.name)[0]}
+              {nameParts(business.name)[1] && <span>{nameParts(business.name)[1]}</span>}
             </strong>
-            <small>WHOLESALE MANAGEMENT</small>
+            {business.tagline && <small>{business.tagline.toUpperCase()}</small>}
           </div>
         </Action>
         <div className="workspace-switch">
@@ -2328,8 +2327,8 @@ export default function App() {
             <Building2 size={17} />
           </span>
           <div>
-            <strong>Main business</strong>
-            <span>Lahore · Main warehouse</span>
+            <strong>{business.name}</strong>
+            <span>{business.city ? `${business.city} · ` : ""}Main warehouse</span>
           </div>
           <ShieldCheck size={14} className="muted" />
         </div>
@@ -2521,16 +2520,13 @@ export default function App() {
 }
 
 function Login({ onLogin }: { onLogin: () => void }) {
+  const { business } = useBusiness()
   const [error, setError] = useState("")
   return (
     <div className="login-screen">
       <div className="login-brand">
-        <span className="brand-mark">
-          <span />
-          <span />
-          <span />
-        </span>
-        <strong>RAZA TEXTILES</strong>
+        <BrandMark logo={business.logo} />
+        <strong>{business.name.toUpperCase()}</strong>
       </div>
       <div className="login-card">
         <span className="login-icon">

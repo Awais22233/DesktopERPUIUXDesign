@@ -1,3 +1,4 @@
+import { useConfig, profiles, featureMeta, type ProfileId } from "./config"
 import { useRef, useState } from "react"
 import {
   ArrowDownLeft,
@@ -516,8 +517,10 @@ export function Summary({
 }
 
 export function Settings({ notify }: { notify: (message: string) => void }) {
+  const { profile, flags, setProfile, setFlag } = useConfig()
   const sections = [
     "Business setup",
+    "Features",
     "Sales settings",
     "Purchase settings",
     "Payment methods",
@@ -529,7 +532,7 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
     "Return rules",
     "Backup settings",
     "Security",
-  ]
+  ].filter((name) => name !== "Than sizes" || flags.than)
   const [section, setSection] = useState("Business setup")
   const [settings, setSettings] = useState<Record<string, string>>(() => {
     try {
@@ -648,12 +651,51 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
                     </Select>
                   </Field>
                 </>
+              ) : section === "Features" ? (
+                <>
+                  <Field label="Business profile">
+                    <Select
+                      value={profile}
+                      onChange={(e) => {
+                        const next = e.target.value as ProfileId
+                        setProfile(next)
+                        notify(`Profile changed to ${profiles[next].name}.`)
+                      }}
+                    >
+                      {(Object.keys(profiles) as ProfileId[]).map((id) => (
+                        <option key={id} value={id}>
+                          {profiles[id].name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <div className="info-notice">
+                    <Package size={17} />
+                    Turning a feature off hides its screens and fields. Existing
+                    records are kept.
+                  </div>
+                  {featureMeta
+                    .filter((f) => f.wired)
+                    .map((f) => (
+                      <div className="setting-toggle" key={f.key}>
+                        <div>
+                          <strong>{f.title}</strong>
+                          <span>{f.description}</span>
+                        </div>
+                        <Input
+                          type="checkbox"
+                          checked={flags[f.key]}
+                          onChange={(e) => setFlag(f.key, e.target.checked)}
+                        />
+                      </div>
+                    ))}
+                </>
               ) : section === "Than sizes" ? (
                 <>
                   <div className="info-notice">
                     <Package size={17} />
-                    Each stock item has a fixed Than size to keep quantities
-                    accurate.
+                    Common Than sizes offered as suggestions when adding items.
+                    You can always type any size.
                   </div>
                   {["25", "30", "40", "50"].map((size) => (
                     <div className="setting-toggle" key={size}>

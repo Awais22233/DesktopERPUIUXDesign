@@ -1,3 +1,4 @@
+import { useConfig } from "./config"
 import { useState } from "react"
 import {
   ArrowDownLeft,
@@ -58,6 +59,7 @@ export default function Dashboard({
   navigate,
   open,
 }: Props) {
+  const { isEnabled } = useConfig()
   const [period, setPeriod] = useState("This week")
   const [activity, setActivity] = useState("Recent sales")
   const [hover, setHover] = useState<number | null>(null)
@@ -419,15 +421,17 @@ export default function Dashboard({
               </span>
               <strong>{money(sales.reduce((s, p) => s + p.paid, 0))}</strong>
             </div>
-            <div>
-              <span>
-                <span className="payment-row-icon green">
-                  <Wallet size={15} />
+            {isEnabled("recovery") && (
+              <div>
+                <span>
+                  <span className="payment-row-icon green">
+                    <Wallet size={15} />
+                  </span>
+                  Recovery collected
                 </span>
-                Recovery collected
-              </span>
-              <strong className="green-text">{money(recovered)}</strong>
-            </div>
+                <strong className="green-text">{money(recovered)}</strong>
+              </div>
+            )}
             <div>
               <span>
                 <span className="payment-row-icon neutral">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useConfig, type FlagKey } from "./config"
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -292,6 +293,7 @@ const navGroups: {
     title: string
     icon: LucideIcon
     shortcut?: string
+    flag?: FlagKey
   }[]
 }[] = [
   {
@@ -300,7 +302,7 @@ const navGroups: {
       { title: "Dashboard", icon: LayoutDashboard },
       { title: "POS / Sales", icon: ShoppingCart, shortcut: "F2" },
       { title: "Customers", icon: Users },
-      { title: "Recovery", icon: Wallet },
+      { title: "Recovery", icon: Wallet, flag: "recovery" },
       { title: "Purchases", icon: ShoppingBag },
       { title: "Suppliers", icon: Building2 },
       { title: "Inventory", icon: Package },
@@ -370,7 +372,10 @@ function isValidStore(value: unknown): value is Store {
   )
 }
 
+const pageFlags: Record<string, FlagKey> = { Recovery: "recovery" }
+
 export default function App() {
+  const { isEnabled } = useConfig()
   const [store, setStore] = useState<Store>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("raza-workspace") || "null")
@@ -417,6 +422,7 @@ export default function App() {
     user: "Ahmed Ali",
   })
   const navigate = (next: string) => {
+    if (pageFlags[next] && !isEnabled(pageFlags[next])) return
     if (next === "Sales Report") {
       setReport("Daily Sales")
       setPage("Reports")
@@ -1759,39 +1765,41 @@ export default function App() {
                   "High discount",
                   "Stock adjustment",
                   "Financial controls",
-                ].map((p, i) => (
-                  <div className="setting-toggle" key={p}>
-                    <div>
-                      <strong>{p}</strong>
-                      <span>
-                        {i > 10
-                          ? "Sensitive action · owner approval recommended"
-                          : "View and manage " + p.toLowerCase()}
-                      </span>
+                ]
+                  .filter((p) => p !== "Recovery" || isEnabled("recovery"))
+                  .map((p, i) => (
+                    <div className="setting-toggle" key={p}>
+                      <div>
+                        <strong>{p}</strong>
+                        <span>
+                          {i > 10
+                            ? "Sensitive action · owner approval recommended"
+                            : "View and manage " + p.toLowerCase()}
+                        </span>
+                      </div>
+                      <Input
+                        aria-label={`Allow ${p} for ${role}`}
+                        type="checkbox"
+                        checked={
+                          store.permissions[role + ":" + p] ??
+                          (role === "Owner / Admin" ||
+                            (role === "Sales User" && i < 3) ||
+                            (role === "Viewer" && i === 8))
+                        }
+                        disabled={role === "Owner / Admin"}
+                        onChange={(e) => {
+                          setStore((s) => ({
+                            ...s,
+                            permissions: {
+                              ...s.permissions,
+                              [role + ":" + p]: e.target.checked,
+                            },
+                          }))
+                          notify("Permission preference saved.")
+                        }}
+                      />
                     </div>
-                    <Input
-                      aria-label={`Allow ${p} for ${role}`}
-                      type="checkbox"
-                      checked={
-                        store.permissions[role + ":" + p] ??
-                        (role === "Owner / Admin" ||
-                          (role === "Sales User" && i < 3) ||
-                          (role === "Viewer" && i === 8))
-                      }
-                      disabled={role === "Owner / Admin"}
-                      onChange={(e) => {
-                        setStore((s) => ({
-                          ...s,
-                          permissions: {
-                            ...s.permissions,
-                            [role + ":" + p]: e.target.checked,
-                          },
-                        }))
-                        notify("Permission preference saved.")
-                      }}
-                    />
-                  </div>
-                ))}
+                  ))}
               </div>
             </Panel>
           </div>
@@ -2245,10 +2253,12 @@ export default function App() {
             <div>
               <strong>2 parties have overdue balances</strong>
               <p>Follow up with Al-Madina Fabrics and Hassan Cloth House.</p>
-              <Button onClick={() => navigate("Recovery")}>
-                Open recovery
-                <ArrowRight size={14} />
-              </Button>
+              {isEnabled("recovery") && (
+                <Button onClick={() => navigate("Recovery")}>
+                  Open recovery
+                  <ArrowRight size={14} />
+                </Button>
+              )}
             </div>
           </div>
         </Modal>
@@ -2327,23 +2337,25 @@ export default function App() {
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
               <div className="nav-label">{group.label}</div>
-              {group.items.map((item) => (
-                <Action
-                  key={item.title}
-                  title={collapsed ? item.title : undefined}
-                  className={`nav-item ${
-                    activePage === item.title ? "active" : ""
-                  }`}
-                  onClick={() => navigate(item.title)}
-                >
-                  <item.icon size={18} strokeWidth={1.7} />
-                  <span>{item.title}</span>
-                  {item.shortcut && <kbd>{item.shortcut}</kbd>}
-                  {activePage === item.title && (
-                    <span className="nav-active-dot" />
-                  )}
-                </Action>
-              ))}
+              {group.items
+                .filter((item) => !item.flag || isEnabled(item.flag))
+                .map((item) => (
+                  <Action
+                    key={item.title}
+                    title={collapsed ? item.title : undefined}
+                    className={`nav-item ${
+                      activePage === item.title ? "active" : ""
+                    }`}
+                    onClick={() => navigate(item.title)}
+                  >
+                    <item.icon size={18} strokeWidth={1.7} />
+                    <span>{item.title}</span>
+                    {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                    {activePage === item.title && (
+                      <span className="nav-active-dot" />
+                    )}
+                  </Action>
+                ))}
             </div>
           ))}
         </nav>

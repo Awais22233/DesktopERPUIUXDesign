@@ -11,8 +11,8 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test.mjs",
-    "pack:win": "electron-vite build && electron-builder --win --x64",
-    "pack:dir": "electron-vite build && electron-builder --dir",
+    "pack:win": "electron-vite build && electron-builder --win --x64 --publish never",
+    "pack:dir": "electron-vite build && electron-builder --dir --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

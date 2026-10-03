@@ -117,6 +117,9 @@ export function voidPurchase(db: DB, actor: Actor, purchaseId: number, reason: s
       | undefined
     if (!p) throw new AppError("NOT_FOUND", "Purchase not found")
     if (p.status !== "completed") throw new AppError("INVALID_STATE", "This purchase is already void")
+    if (db.prepare("SELECT 1 FROM purchase_returns WHERE purchase_id = ?").get(purchaseId)) {
+      throw new AppError("INVALID_STATE", "This purchase has a return against it and cannot be cancelled.")
+    }
     const ts = new Date().toISOString()
 
     const lines = db.prepare("SELECT variant_id, qty FROM purchase_lines WHERE purchase_id = ?").all(purchaseId) as { variant_id: number; qty: number }[]

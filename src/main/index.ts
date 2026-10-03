@@ -3,17 +3,21 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
-import { handle, setLicenseGuard } from "./ipc"
+import { handle, setLicenseGuard, setSessionGuard } from "./ipc"
+import { createCommands } from "./commands"
+import { Session } from "./session"
 import { initLogger, log } from "./logger"
 import { BackupManager } from "./backupManager"
 import { integrityCheck, openDatabase, type DB } from "./db/connection"
 import { listBackups, restoreBackup, verifyBackup } from "./db/backup"
+import { CHANNELS, type Channel } from "@shared/ipc"
 import { migrate } from "./db/migrate"
 import { migrations } from "./db/migrations"
 import { createBackup } from "./db/backup"
 import { seedRoles } from "./services/auth"
 import { ensureConfig, getConfig, setFlag, setProfile } from "./services/config"
 import { ensureWalkInParty } from "./services/masterData"
+import { seedDefaults } from "./services/defaults"
 import { FLAG_KEYS, profiles, type FlagKey } from "@shared/profiles"
 import { businessSchema, ensureBusinessName, getBusiness, setBusiness } from "./services/business"
 import { evaluateLicense, normalizeKey, readLastSeen, readStoredKey, storeKey, touchLastSeen } from "./license/license"
@@ -110,6 +114,7 @@ async function startDatabase(): Promise<void> {
   seedRoles(db)
   ensureConfig(db, "cloth")
   ensureWalkInParty(db)
+  seedDefaults(db)
   backups = new BackupManager(db, backupsDir)
   await backups.runIfDue()
   setInterval(() => void backups.runIfDue(), 3600 * 1000).unref()
@@ -153,11 +158,30 @@ function currentLicense(force = false): LicenseStatus {
   return status
 }
 
+const userSession = new Session()
+const SPECIAL = new Set<Channel>(["app:info", "license:status", "license:activate", "health:get"])
+/** Every renderer payload must be a plain object (or nothing) of sensible size; the services validate the values. */
+const payloadShape = z.custom<unknown>((v) => v === undefined || v === null || (typeof v === "object" && !Array.isArray(v) && JSON.stringify(v).length < 2_500_000), "Invalid request")
+
+async function restoreAndRestart(name: string): Promise<void> {
+  const entry = listBackups(backupsDir).find((b) => b.name === name)
+  if (!entry) throw new Error("That backup was not found")
+  const check = verifyBackup(entry.file)
+  if (!check.ok) throw new Error("That backup is damaged and cannot be restored")
+  await backups.run("pre-restore")
+  db.close()
+  restoreBackup(entry.file, dbFile, backupsDir)
+  log("warn", `Restored from ${entry.name}; restarting`)
+  quitting = true
+  app.relaunch()
+  app.exit(0)
+}
+
 function registerIpc(): void {
   setLicenseGuard(() => currentLicense().state === "valid")
+  setSessionGuard(() => userSession.loggedIn)
   const schemaVersion = () => (db.prepare("SELECT COALESCE(MAX(id),0) v FROM schema_migrations").get() as { v: number }).v
   handle("app:info", null, () => ({ version: app.getVersion(), dataDir, schemaVersion: schemaVersion(), packaged: app.isPackaged }))
-  handle("config:get", null, () => getConfig(db))
   handle("license:status", null, () => currentLicense())
   handle("license:activate", z.object({ key: z.string().min(1, "Enter your license key").max(2000) }), (p) => {
     const status = computeLicense(normalizeKey(p.key))
@@ -169,19 +193,26 @@ function registerIpc(): void {
     } else log("warn", `Activation refused: ${status.state}`)
     return status
   })
-  handle("business:get", null, () => getBusiness(db))
-  handle("business:set", businessSchema, (b) => {
-    const saved = setBusiness(db, null, b)
-    win?.setTitle(saved.name)
-    return saved
-  })
-  handle("config:setFlag", z.object({ flag: z.enum(FLAG_KEYS as [FlagKey, ...FlagKey[]]), enabled: z.boolean() }), (p) => setFlag(db, null, p.flag, p.enabled))
-  handle("backup:run", null, async () => ({ name: (await backups.run("manual")).split(/[\\/]/).pop()! }))
-  handle("backup:list", null, () => backups.list())
   handle("health:get", null, () => {
     const r = integrityCheck(db)
     return { integrityOk: r.ok, lastBackupAt: backups.lastBackupAt(), problems: r.problems }
   })
+
+  const commands = createCommands({
+    db: () => db,
+    session: userSession,
+    backups: () => backups,
+    restore: restoreAndRestart,
+    chooseFolder: async () => {
+      const r = win ? await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] }) : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] })
+      return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]!
+    },
+  })
+  for (const channel of CHANNELS) {
+    if (SPECIAL.has(channel)) continue
+    const fn = commands[channel] as (p: unknown) => unknown
+    handle(channel, payloadShape, ((p: unknown) => fn(p)) as never)
+  }
 }
 
 function createWindow(): void {

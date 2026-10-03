@@ -6,9 +6,15 @@ import { log } from "./logger"
 
 /** Channels that work before the copy is activated. Everything else is refused until a valid license exists. */
 const OPEN_CHANNELS = new Set<Channel>(["license:status", "license:activate", "app:info"])
+/** Channels that work after activation but before anyone has signed in (the sign-in and first-run screens). */
+const PRE_LOGIN_CHANNELS = new Set<Channel>(["auth:status", "auth:setup", "auth:login", "business:get"])
 let isLicensed: () => boolean = () => false
+let isSignedIn: () => boolean = () => false
 export function setLicenseGuard(fn: () => boolean): void {
   isLicensed = fn
+}
+export function setSessionGuard(fn: () => boolean): void {
+  isSignedIn = fn
 }
 
 type Handler<C extends Channel> = (payload: IpcContract[C]["req"]) => Promise<IpcContract[C]["res"]> | IpcContract[C]["res"]
@@ -22,6 +28,9 @@ export function handle<C extends Channel>(channel: C, schema: z.ZodType | null, 
     try {
       if (!OPEN_CHANNELS.has(channel) && !isLicensed()) {
         return { ok: false, error: { code: "LICENSE", message: "This copy of the software is not activated." } }
+      }
+      if (!OPEN_CHANNELS.has(channel) && !PRE_LOGIN_CHANNELS.has(channel) && !isSignedIn()) {
+        return { ok: false, error: { code: "AUTH", message: "Please sign in to continue." } }
       }
       const payload = schema ? schema.parse(raw) : undefined
       return { ok: true, data: await fn(payload as IpcContract[C]["req"]) }

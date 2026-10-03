@@ -29,6 +29,7 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   role_id       INTEGER NOT NULL REFERENCES roles(id),
   active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  last_login_at TEXT,
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ) STRICT;
 

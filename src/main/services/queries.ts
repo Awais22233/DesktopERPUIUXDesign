@@ -58,6 +58,7 @@ export function stockReconcile(db: DB): StockMismatch[] {
 
 export interface ProfitSummary {
   sales: number
+  returns: number
   netSales: number
   cogs: number
   grossProfit: number
@@ -66,19 +67,20 @@ export interface ProfitSummary {
 }
 
 /**
- * Net sales = completed sales. COGS from the cost snapshot on each sale line.
+ * Net sales = completed sales minus sale returns. COGS = cost of goods sold minus the cost of goods
+ * that came back in sellable condition (a damaged return keeps its cost as a loss).
  * Receipts (recovery), supplier payments and transfers are deliberately NOT part of profit.
  * `from` inclusive, `to` exclusive, ISO timestamps.
  */
 export function profitSummary(db: DB, from: string, to: string): ProfitSummary {
-  const s = db.prepare("SELECT COALESCE(SUM(total),0) AS v FROM sales WHERE status='completed' AND ts >= ? AND ts < ?").get(from, to) as { v: number }
-  const c = db
-    .prepare(
-      `SELECT COALESCE(SUM(l.qty * l.unit_cost),0) AS v FROM sale_lines l JOIN sales s ON s.id = l.sale_id
-       WHERE s.status='completed' AND s.ts >= ? AND s.ts < ?`,
-    )
-    .get(from, to) as { v: number }
-  const e = db.prepare("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ts >= ? AND ts < ?").get(from, to) as { v: number }
-  const gross = s.v - c.v
-  return { sales: s.v, netSales: s.v, cogs: c.v, grossProfit: gross, expenses: e.v, netProfit: gross - e.v }
+  const one = (sql: string) => (db.prepare(sql).get(from, to) as { v: number }).v
+  const sales = one("SELECT COALESCE(SUM(total),0) AS v FROM sales WHERE status='completed' AND ts >= ? AND ts < ?")
+  const returns = one("SELECT COALESCE(SUM(total),0) AS v FROM sale_returns WHERE ts >= ? AND ts < ?")
+  const sold = one(`SELECT COALESCE(SUM(l.qty * l.unit_cost),0) AS v FROM sale_lines l JOIN sales s ON s.id = l.sale_id WHERE s.status='completed' AND s.ts >= ? AND s.ts < ?`)
+  const back = one(`SELECT COALESCE(SUM(l.qty * l.unit_cost),0) AS v FROM sale_return_lines l JOIN sale_returns r ON r.id = l.return_id WHERE l.damaged = 0 AND r.ts >= ? AND r.ts < ?`)
+  const expenses = one("SELECT COALESCE(SUM(amount),0) AS v FROM expenses WHERE ts >= ? AND ts < ?")
+  const netSales = sales - returns
+  const cogs = sold - back
+  const gross = netSales - cogs
+  return { sales, returns, netSales, cogs, grossProfit: gross, expenses, netProfit: gross - expenses }
 }

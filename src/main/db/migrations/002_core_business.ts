@@ -169,7 +169,7 @@ CREATE TABLE account_entries (
   amount      INTEGER NOT NULL CHECK (amount <> 0),
   kind        TEXT NOT NULL CHECK (kind IN (
                 'opening','sale_receipt','customer_receipt','supplier_payment','purchase_payment',
-                'expense','transfer_in','transfer_out','void_reversal','adjustment')),
+                'expense','transfer_in','transfer_out','void_reversal','refund','adjustment')),
   source_type TEXT,
   source_id   INTEGER,
   description TEXT,

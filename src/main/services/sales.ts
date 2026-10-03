@@ -42,6 +42,26 @@ export interface SaleResult {
   warnings: string[]
 }
 
+/** First-expiry-first-out: which batches a sale draws from. Any quantity beyond known batches has no batch. */
+export function allocateBatches(db: DB, variantId: number, qty: number): { batchId: number | null; qty: number }[] {
+  const batches = db
+    .prepare(
+      `SELECT b.id, COALESCE(SUM(m.qty_delta),0) AS remaining FROM batches b LEFT JOIN stock_movements m ON m.batch_id = b.id
+       WHERE b.variant_id = ? GROUP BY b.id HAVING remaining > 0 ORDER BY (b.expiry_date IS NULL), b.expiry_date, b.id`,
+    )
+    .all(variantId) as { id: number; remaining: number }[]
+  const out: { batchId: number | null; qty: number }[] = []
+  let left = qty
+  for (const b of batches) {
+    if (left <= 0) break
+    const take = Math.min(left, b.remaining)
+    out.push({ batchId: b.id, qty: take })
+    left -= take
+  }
+  if (left > 0) out.push({ batchId: null, qty: left })
+  return out
+}
+
 function defaultRate(db: DB, v: { sale_price: number; wholesale_price: number | null }): number {
   return isFlagEnabled(db, "wholesalePrice") && v.wholesale_price !== null ? v.wholesale_price : v.sale_price
 }
@@ -128,16 +148,20 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
     )
 
     for (const l of lines) {
-      const { unitCost } = postMovement(db, {
-        variantId: l.variantId,
-        qtyDelta: -l.qty,
-        type: "sale",
-        sourceType: "sale",
-        sourceId: saleId,
-        userId: actor.userId,
-        ts,
-        allowNegative: getSetting(db, "stock.allow_negative", "off") === "on",
-      })
+      let unitCost = 0
+      for (const chunk of allocateBatches(db, l.variantId, l.qty)) {
+        unitCost = postMovement(db, {
+          variantId: l.variantId,
+          qtyDelta: -chunk.qty,
+          type: "sale",
+          sourceType: "sale",
+          sourceId: saleId,
+          batchId: chunk.batchId,
+          userId: actor.userId,
+          ts,
+          allowNegative: getSetting(db, "stock.allow_negative", "off") === "on",
+        }).unitCost
+      }
       db.prepare(
         `INSERT INTO sale_lines(sale_id, variant_id, qty, rate, discount, line_total, unit_cost, size_label)
          VALUES (?,?,?,?,?,?,?,?)`,
@@ -169,11 +193,16 @@ export function voidSale(db: DB, actor: Actor, saleId: number, reason: string): 
       | undefined
     if (!sale) throw new AppError("NOT_FOUND", "Sale not found")
     if (sale.status !== "completed") throw new AppError("INVALID_STATE", "This sale is already void")
+    // Reversing a sale that was partly returned would bring the returned goods back a second time.
+    if (db.prepare("SELECT 1 FROM sale_returns WHERE sale_id = ?").get(saleId)) {
+      throw new AppError("INVALID_STATE", "This sale has a return against it and cannot be cancelled. Record a further return instead.")
+    }
     const ts = new Date().toISOString()
 
-    const lines = db.prepare("SELECT variant_id, qty, unit_cost FROM sale_lines WHERE sale_id = ?").all(saleId) as { variant_id: number; qty: number; unit_cost: number }[]
-    for (const l of lines) {
-      postMovement(db, { variantId: l.variant_id, qtyDelta: l.qty, unitCost: l.unit_cost, type: "sale_void", sourceType: "sale", sourceId: saleId, note: reason, userId: actor.userId, ts })
+    // Reverse exactly what was taken out (same quantities, batches and costs).
+    const moved = db.prepare("SELECT variant_id, batch_id, -qty_delta AS qty, unit_cost FROM stock_movements WHERE source_type = 'sale' AND source_id = ? AND type = 'sale'").all(saleId) as { variant_id: number; batch_id: number | null; qty: number; unit_cost: number }[]
+    for (const m of moved) {
+      postMovement(db, { variantId: m.variant_id, qtyDelta: m.qty, unitCost: m.unit_cost, batchId: m.batch_id, type: "sale_void", sourceType: "sale", sourceId: saleId, note: reason, userId: actor.userId, ts })
     }
     addLedgerEntry(db, { ts, partyKind: "customer", partyId: sale.party_id, credit: sale.total, kind: "sale_void", sourceType: "sale", sourceId: saleId, description: `Void ${sale.invoice_no}`, userId: actor.userId })
     if (sale.paid > 0) {

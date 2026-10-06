@@ -45,3 +45,14 @@ casual sharing, which is the realistic risk. Pair it with a contract clause abou
 
 The Computer ID can change (new PC, or Windows reinstalled). Ask for the new ID and issue a new key. Their data is not
 affected; copy the data folder or restore a backup on the new PC first.
+
+## Easiest way: the key generator page
+
+Open `tools/license-generator.html` by double-clicking it (any browser; it works offline and never sends anything).
+
+1. Choose your private key file (`private.pem`). The page shows a fingerprint; it should be the same every time.
+2. Type the client's Computer ID, the shop name, the business type, and an optional end date.
+3. Click **Generate key**, then **Copy key**, and send it to the client.
+
+The page also keeps a list of the keys you made (Download list as CSV), and can check any key. Keep the page and the private key
+on your own computer only; never put them on a web server. Rebuild the page with `pnpm license:page`.

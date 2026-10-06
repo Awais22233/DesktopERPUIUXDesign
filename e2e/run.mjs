@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-const which = process.argv[2] ? [process.argv[2]] : ["cloth", "cosmetics"]
+const which = process.argv[2] ? [process.argv[2]] : ["generator", "cloth", "cosmetics"]
 let bad = 0
 for (const name of which) {
   console.log(`\n=== ${name} ===`)

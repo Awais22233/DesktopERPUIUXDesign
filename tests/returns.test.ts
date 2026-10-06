@@ -7,6 +7,7 @@ import { postSale } from "../src/main/services/sales"
 import { postOpeningAccountBalance, recordReceipt } from "../src/main/services/payments"
 import { accountBalance, customerBalance, partyLedger, profitSummary, stockReconcile, supplierBalance } from "../src/main/services/queries"
 import { setSetting } from "../src/main/db/util"
+import { bizDate } from "../src/main/services/snapshot"
 import { count, setup, type Ctx } from "./helpers"
 
 const stock = (c: Ctx, id: number) => (c.db.prepare("SELECT qty, avg_cost FROM stock_levels WHERE variant_id=?").get(id) as { qty: number; avg_cost: number } | undefined) ?? { qty: 0, avg_cost: 0 }
@@ -118,7 +119,7 @@ describe("purchase return", () => {
 describe("cash closing and stock count", () => {
   it("records expected vs counted cash with the variance, once per account per day", () => {
     postOpeningAccountBalance(c.db, c.owner, { accountId: c.cash, amount: 400_000 })
-    const day = new Date().toISOString().slice(0, 10)
+    const day = bizDate(new Date().toISOString(), 300) // the business day, not the UTC day
     const r = postCashClosing(c.db, c.owner, { accountId: c.cash, businessDate: day, counted: 990_000, notes: "short" })
     expect(r).toMatchObject({ expected: 1_000_000, counted: 990_000, variance: -10_000 })
     expect(codeOf(() => postCashClosing(c.db, c.owner, { accountId: c.cash, businessDate: day, counted: 1 }))).toBe("INVALID_STATE")

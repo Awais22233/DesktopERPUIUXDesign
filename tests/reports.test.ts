@@ -9,6 +9,7 @@ import { seedDefaults } from "../src/main/services/defaults"
 import { ensureWalkInParty } from "../src/main/services/masterData"
 import { runReport } from "../src/main/services/reports"
 import { Session } from "../src/main/session"
+import { bizDate } from "../src/main/services/snapshot"
 
 const REPORTS = ["Daily Sales", "Sales by Customer", "Sales by City", "Sales by Company", "Sales by Article", "Sales by User", "Purchase Report", "Supplier Purchase", "Company Purchase", "Article Purchase", "Current Stock", "Stock Movement", "Stock Valuation", "Low Stock", "Out of Stock", "Stock Adjustments", "Batch Stock", "Near Expiry", "Expired Items", "Outstanding Report", "Party Statements", "Receivable Aging", "Party Payments", "City-wise Analysis", "Supplier Payables", "Supplier Statements", "Payable Aging", "Supplier Payments", "Cash Book", "Bank Book", "Transfers", "Expenses", "Daily Closing", "Profit & Loss", "Daily Profit", "Monthly Profit", "Company Profitability", "Category Profitability", "Customer Profitability", "City Profitability"]
 
@@ -33,7 +34,7 @@ async function world() {
   await c["receipt:create"]({ partyId: b, account: "Cash in hand", method: "Cash", amount: 2000 })
   await c["return:sale"]({ invoice: "INV-00001", quantities: { [x]: 2 }, settlement: "balance" })
   await c["expense:create"]({ category: "Rent", amount: 1000, account: "Cash in hand" })
-  const day = new Date().toISOString().slice(0, 10)
+  const day = bizDate(new Date().toISOString(), 300) // the business day, not the UTC day
   return { db, c, day }
 }
 

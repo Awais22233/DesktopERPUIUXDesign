@@ -12,9 +12,11 @@ Specification: `docs/SRS_v2_2_Configurable_ERP_POS.pdf`. Architecture: `docs/ARC
 | `pnpm install` | Install dependencies (also rebuilds SQLite for Electron) |
 | `pnpm dev` | Run the desktop app with hot reload |
 | `pnpm test` | Run the test suite (inside Electron's runtime) |
+| `pnpm e2e` | Click through the real app window (needs a display, e.g. `xvfb-run -a pnpm e2e`) |
 | `pnpm run typecheck` | Type-check main and renderer |
 | `pnpm run build` | Production build into `out/` |
 | `pnpm run pack:win` | Build the Windows installer into `release/` (run on Windows or in CI) |
+| `pnpm run pack:linux` | Build the Linux AppImage into `release/` |
 
 ## Licensing
 

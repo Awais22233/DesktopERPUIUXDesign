@@ -113,8 +113,10 @@ export function postTransfer(db: DB, actor: Actor, input: { fromAccountId: numbe
     const id = Number(
       db.prepare("INSERT INTO account_transfers(ts, from_account_id, to_account_id, amount, note, user_id) VALUES (?,?,?,?,?,?)").run(ts, input.fromAccountId, input.toAccountId, input.amount, input.note ?? null, actor.userId).lastInsertRowid,
     )
-    addAccountEntry(db, { ts, accountId: input.fromAccountId, amount: -input.amount, kind: "transfer_out", sourceType: "transfer", sourceId: id, description: input.note, userId: actor.userId })
-    addAccountEntry(db, { ts, accountId: input.toAccountId, amount: input.amount, kind: "transfer_in", sourceType: "transfer", sourceId: id, description: input.note, userId: actor.userId })
+    const fromName = (db.prepare("SELECT name FROM accounts WHERE id = ?").get(input.fromAccountId) as { name: string }).name
+    const toName = (db.prepare("SELECT name FROM accounts WHERE id = ?").get(input.toAccountId) as { name: string }).name
+    addAccountEntry(db, { ts, accountId: input.fromAccountId, amount: -input.amount, kind: "transfer_out", sourceType: "transfer", sourceId: id, description: input.note ? `Transfer to ${toName}: ${input.note}` : `Transfer to ${toName}`, userId: actor.userId })
+    addAccountEntry(db, { ts, accountId: input.toAccountId, amount: input.amount, kind: "transfer_in", sourceType: "transfer", sourceId: id, description: input.note ? `Transfer from ${fromName}: ${input.note}` : `Transfer from ${fromName}`, userId: actor.userId })
     audit(db, actor.userId, "transfer.create", "transfer", id, { amount: input.amount })
     return id
   })

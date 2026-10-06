@@ -14,7 +14,9 @@
     "pack:win": "electron-vite build && electron-builder --win --x64 --publish never",
     "pack:dir": "electron-vite build && electron-builder --dir --publish never",
     "postinstall": "electron-builder install-app-deps",
-    "license": "node tools/license.mjs"
+    "license": "node tools/license.mjs",
+    "e2e": "node e2e/run.mjs",
+    "pack:linux": "electron-vite build && electron-builder --linux --x64 --publish never"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.0.0",
@@ -37,7 +39,8 @@
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^7.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "playwright-core": "^1.50.0"
   },
   "packageManager": "pnpm@12.8.1",
   "author": "Awais"

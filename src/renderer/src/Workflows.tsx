@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react"
 import { BrandMark, useBusiness } from "./business"
+import { useConfig } from "./config"
+import { api } from "./backend"
+import type { LedgerView } from "@shared/models"
+import type { Masters } from "@shared/models"
 import {
+  Pencil,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -32,6 +37,7 @@ import {
   Tabs,
 } from "./ui"
 import {
+  L,
   money,
   today,
   type CartItem,
@@ -45,22 +51,29 @@ import {
 export function SalesWorkspace({
   purchase = false,
   parties,
-  products,
+  products: allProducts,
+  walkInId,
+  accounts,
   onSave,
   onHistory,
 }: {
   purchase?: boolean
   parties: Party[]
   products: Product[]
-  onSave: (sale: Transaction, print: boolean) => boolean
+  walkInId?: string
+  accounts: { name: string; type: string }[]
+  onSave: (sale: Transaction, print: boolean) => Promise<boolean>
   onHistory: () => void
 }) {
+  const { isEnabled } = useConfig()
+  const products = allProducts.filter((p) => p.active)
+  const batchOn = purchase && (isEnabled("batch") || isEnabled("expiry"))
   const [query, setQuery] = useState("")
   const [party, setParty] = useState("")
   const [cart, setCart] = useState<CartItem[]>([])
   const [method, setMethod] = useState("Cash")
   const [paid, setPaid] = useState("")
-  const [account, setAccount] = useState("Cash in hand")
+  const [account, setAccount] = useState(accounts[0]?.name ?? "")
   const [discount, setDiscount] = useState("0")
   const [error, setError] = useState("")
   const [invoice, setInvoice] = useState("")
@@ -69,7 +82,7 @@ export function SalesWorkspace({
   const total = Math.max(0, subtotal - Number(discount))
   const received =
     method === "Cash" ? total : method === "Credit" ? 0 : Number(paid || 0)
-  const selectedParty = parties.find((p) => p.id === party)
+  const selectedParty = parties.find((p) => p.id === party) ?? (walkInId && party === walkInId ? ({ id: walkInId, name: "Walk-in customer", city: "", phone: "", balance: 0, limit: 0, status: "Clear" } as Party) : undefined)
   function addProduct(p: Product) {
     if (!purchase && p.stock === 0) return
     const existing = cart.find((c) => c.productId === p.id)
@@ -83,68 +96,31 @@ export function SalesWorkspace({
           color: p.color,
           size: p.size,
           qty: 1,
-          rate: purchase ? p.cost : p.rate,
+          rate: purchase ? p.cost : p.price,
           discount: 0,
         },
       ])
     setError("")
   }
-  function update(id: string, key: string, value: number) {
+  function update(id: string, key: string, value: number | string) {
     setCart(cart.map((c) => (c.productId === id ? { ...c, [key]: value } : c)))
   }
-  function save(print: boolean) {
-    if (!party)
-      return setError(
-        `Select a ${purchase ? "supplier" : "party"} before saving.`,
-      )
-    if (!cart.length)
-      return setError("Add at least one product to the invoice.")
-    if (
-      cart.some(
-        (c) =>
-          c.qty <= 0 ||
-          !Number.isInteger(c.qty) ||
-          c.rate <= 0 ||
-          c.discount < 0 ||
-          c.discount > c.qty * c.rate,
-      )
-    )
-      return setError(
-        "Check quantities, rates and discounts. Than quantities must be whole numbers.",
-      )
-    if (
-      !purchase &&
-      cart.some(
-        (c) => c.qty > (products.find((p) => p.id === c.productId)?.stock || 0),
-      )
-    )
-      return setError(
-        "The quantity exceeds available stock. Please adjust the quantity.",
-      )
-    if (Number(discount) < 0 || Number(discount) > subtotal)
-      return setError("Invoice discount must be between zero and the subtotal.")
-    if (Number(discount) > subtotal * 0.1)
-      return setError("Discounts over 10% require owner authorization.")
-    if (
-      received > total ||
-      received < 0 ||
-      (method === "Partial" && (!received || received >= total))
-    )
-      return setError(
-        "Enter a partial payment greater than zero and less than the total.",
-      )
-    if (
-      !purchase &&
-      selectedParty &&
-      selectedParty.balance + total - received > selectedParty.limit
-    )
-      return setError(
-        "This sale exceeds the party’s credit limit. Reduce credit or receive a payment.",
-      )
-    const saved = onSave(
+  async function save(print: boolean) {
+    if (!party) return setError(`Select a ${purchase ? "supplier" : "party"} before saving.`)
+    if (!cart.length) return setError("Add at least one product to the invoice.")
+    if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > c.qty * c.rate))
+      return setError(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
+    if (!purchase && cart.some((c) => c.qty > (products.find((p) => p.id === c.productId)?.stock || 0)))
+      return setError("The quantity exceeds available stock. Please adjust the quantity.")
+    if (Number(discount) < 0 || Number(discount) > subtotal) return setError("Invoice discount must be between zero and the subtotal.")
+    if (received > total || received < 0 || (method === "Partial" && (!received || received >= total)))
+      return setError("Enter a partial payment greater than zero and less than the total.")
+    if (method !== "Credit" && received > 0 && !account) return setError("Choose the account the payment goes into.")
+    const saved = await onSave(
       {
-        id: `${purchase ? "PUR" : "INV"}-${Date.now().toString().slice(-6)}`,
+        id: "",
         party: selectedParty!.name,
+        partyId: party,
         date: purchase ? invoiceDate : today,
         items: cart.reduce((s, c) => s + c.qty, 0),
         total,
@@ -157,10 +133,7 @@ export function SalesWorkspace({
       },
       print,
     )
-    if (!saved)
-      return setError(
-        "Could not save. Check the payment account balance; your invoice has been kept.",
-      )
+    if (!saved) return setError("Could not save. Nothing was changed; your invoice has been kept.")
     setInvoice("")
     setCart([])
     setPaid("")
@@ -178,7 +151,7 @@ export function SalesWorkspace({
     return () => window.removeEventListener("keydown", handler)
   })
   const found = products.filter((p) =>
-    `${p.name} ${p.company} ${p.article} ${p.color} ${p.id} ${p.category}`
+    `${p.name} ${p.company} ${p.article} ${p.color} ${p.id} ${p.category} ${p.barcode ?? ""} ${p.sku ?? ""}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   )
@@ -235,7 +208,7 @@ export function SalesWorkspace({
                 )
                   return
                 e.preventDefault()
-                const product = found.find((p) => purchase || p.stock > 0)
+                const product = found.find((p) => p.barcode && p.barcode === query.trim() && (purchase || p.stock > 0)) ?? found.find((p) => purchase || p.stock > 0)
                 if (product) {
                   addProduct(product)
                   setQuery("")
@@ -245,7 +218,7 @@ export function SalesWorkspace({
               <SearchBox
                 value={query}
                 onChange={setQuery}
-                placeholder="Search cloth, article or scan barcode…"
+                placeholder={isEnabled("barcode") ? "Scan a barcode or search by name…" : "Search by name, article or code…"}
               />
               <span className="key-hint">Enter to select</span>
             </div>
@@ -266,13 +239,13 @@ export function SalesWorkspace({
                       {p.company} · {p.article}
                     </span>
                     <small>
-                      {p.color} · {p.size}m / Than
+                      {[p.color, p.size].filter(Boolean).join(" · ") || p.unit}
                     </small>
                   </span>
                   <span className="product-option-right">
-                    <strong>{money(purchase ? p.cost : p.rate)}</strong>
+                    <strong>{money(purchase ? p.cost : p.price)}</strong>
                     <small className={p.stock < 10 ? "amber-text" : ""}>
-                      {p.stock} Thans in stock
+                      {p.stock} {L.units} in stock
                     </small>
                     <Plus size={15} />
                   </span>
@@ -291,7 +264,7 @@ export function SalesWorkspace({
             title={purchase ? "Purchase items" : "Sale items"}
             action={
               <span className="small-tag">
-                {cart.reduce((s, c) => s + c.qty, 0)} Thans
+                {cart.reduce((s, c) => s + c.qty, 0)} {L.units}
               </span>
             }
           >
@@ -300,9 +273,11 @@ export function SalesWorkspace({
                 <thead>
                   <tr>
                     <th>Product / variant</th>
-                    <th>Than size</th>
+                    <th>{L.size}</th>
+                    {batchOn && <th>Batch</th>}
+                    {batchOn && isEnabled("expiry") && <th>Expiry</th>}
                     <th>Qty</th>
-                    <th>Rate / Than</th>
+                    <th>{L.rate}</th>
                     <th>Discount</th>
                     <th className="align-right">Amount</th>
                     <th />
@@ -319,17 +294,17 @@ export function SalesWorkspace({
                           </span>
                         </div>
                       </td>
-                      <td>
-                        <Select
-                          aria-label={`Than size for ${c.name}`}
-                          value={c.size}
-                          onChange={(e) =>
-                            update(c.productId, "size", +e.target.value)
-                          }
-                        >
-                          <option value={c.size}>{c.size}m</option>
-                        </Select>
-                      </td>
+                      <td>{c.size || "—"}</td>
+                      {batchOn && (
+                        <td>
+                          <Input aria-label={`Batch of ${c.name}`} value={c.batchNo ?? ""} onChange={(e) => update(c.productId, "batchNo", e.target.value)} placeholder="Batch no." />
+                        </td>
+                      )}
+                      {batchOn && isEnabled("expiry") && (
+                        <td>
+                          <Input aria-label={`Expiry of ${c.name}`} type="date" value={c.expiryDate ?? ""} onChange={(e) => update(c.productId, "expiryDate", e.target.value)} />
+                        </td>
+                      )}
                       <td>
                         <Input
                           aria-label={`Quantity of ${c.name}`}
@@ -346,7 +321,7 @@ export function SalesWorkspace({
                         <Input
                           aria-label={`Rate for ${c.name}`}
                           type="number"
-                          min="1"
+                          min="0"
                           value={c.rate}
                           onChange={(e) =>
                             update(c.productId, "rate", +e.target.value)
@@ -396,7 +371,7 @@ export function SalesWorkspace({
             )}
             <div className="panel-note">
               <ShieldCheck size={14} />
-              Rates are per Than. Stock updates only when you save.
+              Rates are {L.perUnit}. Stock updates only when you save.
             </div>
           </Panel>
         </div>
@@ -416,6 +391,7 @@ export function SalesWorkspace({
                 <option value="">
                   Select {purchase ? "supplier" : "party"}…
                 </option>
+                {!purchase && walkInId && <option value={walkInId}>Walk-in customer</option>}
                 {parties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -441,7 +417,7 @@ export function SalesWorkspace({
                 </div>
                 <div>
                   <span>Payment terms</span>
-                  <strong>30 days</strong>
+                  <strong>{selectedParty.terms ? `${selectedParty.terms} days` : "Not set"}</strong>
                 </div>
               </div>
             )}
@@ -499,9 +475,9 @@ export function SalesWorkspace({
                   value={account}
                   onChange={(e) => setAccount(e.target.value)}
                 >
-                  <option>Cash in hand</option>
-                  <option>Meezan Bank</option>
-                  <option>HBL Business</option>
+                  {accounts.map((a) => (
+                    <option key={a.name}>{a.name}</option>
+                  ))}
                 </Select>
               </Field>
             )}
@@ -551,6 +527,7 @@ export function EntryForm({
   type,
   parties,
   products,
+  masters,
   initial,
   onClose,
   onSubmit,
@@ -558,63 +535,58 @@ export function EntryForm({
   type: string
   parties: Party[]
   products: Product[]
+  masters: Masters
   initial?: Party | Product
   onClose: () => void
   onSubmit: (data: Record<string, string>) => void
 }) {
+  const { isEnabled } = useConfig()
+  const accounts = masters.accounts.filter((a) => a.active)
   const [error, setError] = useState("")
   const [selected, setSelected] = useState(initial?.id || "")
   const [amount, setAmount] = useState("")
-  const [method, setMethod] = useState("Cash")
+  const [method, setMethod] = useState(masters.paymentMethods[0] ?? "Cash")
   const [quantity, setQuantity] = useState("")
   const [confirm, setConfirm] = useState(false)
   const party = parties.find((p) => p.id === selected)
   const product = products.find((p) => p.id === selected)
+  const editing = !!initial?.id && (type === "party" || type === "product")
+  const prod = (editing && type === "product" ? initial : undefined) as Product | undefined
+  const pty = (editing && type === "party" ? initial : undefined) as Party | undefined
   const financial = type === "recovery" || type === "supplier-payment"
+  const defaultAccount = (kind: string) => (kind === "Cash" ? accounts.find((a) => a.type === "cash") : accounts.find((a) => a.type === "bank") ?? accounts[0])?.name
+  const accountOptions = accounts.map((a) => (
+    <option key={a.name} value={a.name}>
+      {a.name}
+    </option>
+  ))
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const data = Object.fromEntries(
-      new FormData(e.currentTarget),
-    ) as Record<string, string>
+    const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
     if (financial) {
       if (!party) return setError("Please select a party.")
-      if (+amount <= 0 || +amount > party.balance)
-        return setError(
-          "Collection amount must be greater than zero and no more than the outstanding balance.",
-        )
+      if (+amount <= 0 || +amount > Math.max(party.balance, 0)) return setError("The amount must be greater than zero and no more than the outstanding balance.")
     }
-    if ((type === "expense" || type === "transfer") && +data.amount <= 0)
-      return setError("Enter an amount greater than zero.")
-    if (type === "transfer" && data.from === data.to)
-      return setError("Choose two different accounts.")
+    if ((type === "expense" || type === "transfer") && +data.amount <= 0) return setError("Enter an amount greater than zero.")
+    if (type === "transfer" && data.from === data.to) return setError("Choose two different accounts.")
     if (type === "adjust") {
       if (!product) return setError("Select a product.")
-      if (
-        !Number.isInteger(+quantity) ||
-        !+quantity ||
-        product.stock + +quantity < 0
-      )
-        return setError(
-          "Enter a whole number adjustment that does not make stock negative.",
-        )
+      if (!Number.isInteger(+quantity) || !+quantity || product.stock + +quantity < 0) return setError("Enter a whole number adjustment that does not make stock negative.")
       if (!confirm) {
         setConfirm(true)
         return
       }
     }
-    if (type === "party" && !data.name.trim())
-      return setError("Enter the party name.")
+    if ((type === "party" || type === "product" || type === "account") && !(data.name ?? data.article ?? "x").trim()) return setError("Enter a name.")
     onSubmit(data)
   }
+  const dateField = type !== "party" && type !== "user" && type !== "product" && type !== "account"
   return (
     <form onSubmit={submit}>
       <div className="modal-body">
         {financial && (
           <>
-            <Field
-              label={type === "recovery" ? "Customer / party" : "Supplier"}
-              required
-            >
+            <Field label={type === "recovery" ? "Customer / party" : "Supplier"} required>
               <Select
                 name="partyId"
                 value={selected}
@@ -634,46 +606,28 @@ export function EntryForm({
             </Field>
             {party && (
               <div className="form-balance">
-                <span>Current outstanding</span>
+                <span>{type === "recovery" ? "Current outstanding" : "Current payable"}</span>
                 <strong>{money(party.balance)}</strong>
-                <small>
-                  {party.city} · {party.phone}
-                </small>
+                <small>{[party.city, party.phone].filter(Boolean).join(" · ")}</small>
               </div>
             )}
             <Field label="Amount" required>
               <div className="large-amount-input">
                 <span>Rs.</span>
-                <Input
-                  name="amount"
-                  type="number"
-                  min="1"
-                  max={party?.balance}
-                  required
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0"
-                />
+                <Input name="amount" type="number" min="1" max={party ? Math.max(party.balance, 0) : undefined} required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
               </div>
             </Field>
             <div className="form-grid">
               <Field label="Payment method">
-                <Select
-                  name="method"
-                  value={method}
-                  onChange={(e) => setMethod(e.target.value)}
-                >
-                  <option>Cash</option>
-                  <option>Bank</option>
-                  <option>Cheque</option>
+                <Select name="method" value={method} onChange={(e) => setMethod(e.target.value)}>
+                  {masters.paymentMethods.map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
                 </Select>
               </Field>
               <Field label="Payment account">
-                <Select name="account">
-                  <option>
-                    {method === "Cash" ? "Cash in hand" : "Meezan Bank"}
-                  </option>
-                  <option>HBL Business</option>
+                <Select name="account" key={method} defaultValue={defaultAccount(method)}>
+                  {accountOptions}
                 </Select>
               </Field>
             </div>
@@ -689,29 +643,16 @@ export function EntryForm({
           <>
             <Field label="Category" required>
               <Select name="category" required>
-                <option>Transportation</option>
-                <option>Utilities</option>
-                <option>Rent</option>
-                <option>Salaries</option>
-                <option>Office supplies</option>
-                <option>Other</option>
+                {masters.expenseCategories.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
               </Select>
             </Field>
             <Field label="Amount" required>
-              <Input
-                name="amount"
-                type="number"
-                min="1"
-                required
-                placeholder="Enter amount in Rs."
-              />
+              <Input name="amount" type="number" min="1" required placeholder="Enter amount in Rs." />
             </Field>
             <Field label="Pay from account">
-              <Select name="account">
-                <option>Cash in hand</option>
-                <option>Meezan Bank</option>
-                <option>HBL Business</option>
-              </Select>
+              <Select name="account">{accountOptions}</Select>
             </Field>
           </>
         )}
@@ -719,21 +660,14 @@ export function EntryForm({
           <>
             <div className="info-notice">
               <ArrowRight size={17} />
-              Transfers move money between accounts. They are not income or
-              expenses.
+              Transfers move money between accounts. They are not income or expenses.
             </div>
             <Field label="From account">
-              <Select name="from">
-                <option>Cash in hand</option>
-                <option>Meezan Bank</option>
-                <option>HBL Business</option>
-              </Select>
+              <Select name="from">{accountOptions}</Select>
             </Field>
             <Field label="To account">
-              <Select name="to" defaultValue="Meezan Bank">
-                <option>Cash in hand</option>
-                <option>Meezan Bank</option>
-                <option>HBL Business</option>
+              <Select name="to" defaultValue={accounts[1]?.name ?? accounts[0]?.name}>
+                {accountOptions}
               </Select>
             </Field>
             <Field label="Amount" required>
@@ -744,16 +678,11 @@ export function EntryForm({
         {type === "adjust" && (
           <>
             <Field label="Product" required>
-              <Select
-                name="productId"
-                value={selected}
-                onChange={(e) => setSelected(e.target.value)}
-                required
-              >
+              <Select name="productId" value={selected} onChange={(e) => setSelected(e.target.value)} required>
                 <option value="">Select product…</option>
-                {products.map((p) => (
+                {products.filter((p) => p.active).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} · {p.color} · {p.size}m
+                    {[p.name, p.size].filter(Boolean).join(" · ")}
                   </option>
                 ))}
               </Select>
@@ -761,15 +690,13 @@ export function EntryForm({
             {product && (
               <div className="form-balance">
                 <span>Current stock</span>
-                <strong>{product.stock} Thans</strong>
+                <strong>
+                  {product.stock} {L.units}
+                </strong>
                 <small>{product.id}</small>
               </div>
             )}
-            <Field
-              label="Adjustment quantity"
-              required
-              hint="Use a negative number to reduce stock, e.g. −2."
-            >
+            <Field label="Adjustment quantity" required hint="Use a negative number to reduce stock, e.g. −2.">
               <Input
                 name="quantity"
                 type="number"
@@ -785,22 +712,16 @@ export function EntryForm({
             <Field label="Reason" required>
               <Select name="reason">
                 <option>Physical count correction</option>
-                <option>Damaged fabric</option>
-                <option>Opening stock</option>
+                <option>Damaged stock</option>
+                <option>Lost or missing</option>
                 <option>Other correction</option>
               </Select>
             </Field>
-            <div className="info-notice">
-              <ShieldCheck size={17} />
-              Authorized by Ahmed Ali · Owner / Admin
-            </div>
             {confirm && (
               <div className="confirm-notice">
                 <strong>Confirm stock adjustment?</strong>
                 <p>
-                  Stock will change from {product?.stock} to{" "}
-                  {(product?.stock || 0) + +quantity} Thans. This adjustment
-                  will be recorded in the stock movement log.
+                  Stock will change from {product?.stock} to {(product?.stock || 0) + +quantity} {L.units}. This is recorded in the stock movement log with your name.
                 </p>
               </div>
             )}
@@ -809,38 +730,161 @@ export function EntryForm({
         {type === "party" && (
           <>
             <Field label="Party name" required>
-              <Input
-                name="name"
-                required
-                placeholder="Business or party name"
-              />
+              <Input name="name" required defaultValue={pty?.name} placeholder="Business or party name" />
             </Field>
             <div className="form-grid">
-              <Field label="City" required>
-                <Input name="city" required />
+              <Field label="City" required={isEnabled("cityWise")}>
+                <Input name="city" list="city-list" required={isEnabled("cityWise")} defaultValue={pty?.city} />
+                <datalist id="city-list">
+                  {masters.cities.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </Field>
-              <Field label="Phone">
-                <Input name="phone" type="tel" />
+              <Field label="Area">
+                <Input name="area" defaultValue={pty?.area} />
               </Field>
             </div>
             <div className="form-grid">
-              <Field label="Credit limit (Rs.)">
-                <Input
-                  name="limit"
-                  type="number"
-                  min="0"
-                  defaultValue="100000"
-                />
+              <Field label="Phone">
+                <Input name="phone" type="tel" defaultValue={pty?.phone} />
               </Field>
-              <Field label="Payment terms">
-                <Select name="terms">
-                  <option>30 days</option>
-                  <option>15 days</option>
-                  <option>Cash only</option>
-                  <option>60 days</option>
-                </Select>
+              <Field label="WhatsApp">
+                <Input name="whatsapp" type="tel" defaultValue={pty?.whatsapp} />
               </Field>
             </div>
+            <Field label="Address">
+              <Input name="address" defaultValue={pty?.address} />
+            </Field>
+            <div className="form-grid">
+              <Field label="Credit limit (Rs.)" hint="0 means no limit is set.">
+                <Input name="limit" type="number" min="0" defaultValue={pty ? pty.limit : 0} />
+              </Field>
+              <Field label="Payment terms (days)">
+                <Input name="terms" type="number" min="0" defaultValue={pty?.terms ?? ""} placeholder="e.g. 30" />
+              </Field>
+            </div>
+            {!editing && (
+              <Field label="Opening balance (Rs.)" hint="What this party already owes you (or you owe a supplier) before you start using the program.">
+                <Input name="opening" type="number" step="1" placeholder="0" />
+              </Field>
+            )}
+            {editing && (
+              <Field label="Status">
+                <Select name="active" defaultValue={pty?.status === "Inactive" ? "Inactive" : "Active"}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                </Select>
+              </Field>
+            )}
+            <Field label="Notes">
+              <Textarea name="notes" rows={2} defaultValue={pty?.notes} />
+            </Field>
+          </>
+        )}
+        {type === "product" && (
+          <>
+            <div className="form-grid">
+              <Field label={isEnabled("than") ? "Company / brand" : "Brand"} required>
+                <Input name="company" list="company-list" required defaultValue={prod?.company} />
+                <datalist id="company-list">
+                  {masters.companies.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
+              </Field>
+              <Field label={isEnabled("than") ? "Article" : "Item"} required hint={isEnabled("than") ? "e.g. Article A" : "e.g. Shampoo"}>
+                <Input name="article" required defaultValue={prod?.article} />
+              </Field>
+            </div>
+            <div className="form-grid">
+              <Field label="Category (optional)">
+                <Input name="category" list="category-list" defaultValue={prod?.category} />
+                <datalist id="category-list">
+                  {masters.categories.map((c) => (
+                    <option key={c.name} value={c.name} />
+                  ))}
+                </datalist>
+              </Field>
+              <Field label="Subcategory (optional)">
+                <Input name="subcategory" />
+              </Field>
+            </div>
+            <div className="form-grid">
+              <Field label={isEnabled("than") ? "Colour" : "Variant (colour / type)"}>
+                <Input name="color" defaultValue={prod?.color} />
+              </Field>
+              <Field label={L.size} hint={isEnabled("than") ? "Type it, e.g. 40 meter" : "e.g. 180 ml"}>
+                <Input name="size" list="size-list" defaultValue={prod?.size} />
+                <datalist id="size-list">
+                  {masters.thanSizes.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
+              </Field>
+            </div>
+            {isEnabled("than") && (
+              <Field label="Design">
+                <Input name="design" defaultValue={prod?.design} />
+              </Field>
+            )}
+            <div className="form-grid">
+              <Field label="Purchase price (Rs.)" required>
+                <Input name="cost" type="number" min="0" required defaultValue={prod?.cost} />
+              </Field>
+              <Field label="Sale price (Rs.)" required>
+                <Input name="rate" type="number" min="0" required defaultValue={prod?.rate} />
+              </Field>
+            </div>
+            <div className="form-grid">
+              {isEnabled("wholesalePrice") && (
+                <Field label="Wholesale price (Rs.)">
+                  <Input name="wholesale" type="number" min="0" defaultValue={prod?.wholesale} />
+                </Field>
+              )}
+              <Field label="Minimum stock">
+                <Input name="minStock" type="number" min="0" step="1" defaultValue={prod?.minStock ?? 0} />
+              </Field>
+            </div>
+            <div className="form-grid">
+              <Field label="SKU / code">
+                <Input name="sku" defaultValue={prod?.sku} />
+              </Field>
+              {(isEnabled("barcode") || !!prod?.barcode) && (
+                <Field label="Barcode" hint="Optional. Leave empty if this item has none.">
+                  <Input name="barcode" defaultValue={prod?.barcode} />
+                </Field>
+              )}
+            </div>
+            {!editing && (
+              <Field label={`Opening stock (${L.units})`} hint="Stock you already have before using the program. Valued at the purchase price.">
+                <Input name="openingQty" type="number" min="0" step="1" placeholder="0" />
+              </Field>
+            )}
+            {editing && (
+              <Field label="Status">
+                <Select name="active" defaultValue={prod?.active ? "Active" : "Inactive"}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                </Select>
+              </Field>
+            )}
+          </>
+        )}
+        {type === "account" && (
+          <>
+            <Field label="Account name" required>
+              <Input name="name" required placeholder="e.g. Meezan Bank" />
+            </Field>
+            <Field label="Type">
+              <Select name="type">
+                <option>Cash</option>
+                <option>Bank</option>
+              </Select>
+            </Field>
+            <Field label="Opening balance (Rs.)" hint="Money already in this account.">
+              <Input name="opening" type="number" step="1" placeholder="0" />
+            </Field>
           </>
         )}
         {type === "user" && (
@@ -849,28 +893,28 @@ export function EntryForm({
               <Input name="name" required />
             </Field>
             <Field label="Username" required>
-              <Input name="username" required />
+              <Input name="username" required autoComplete="off" />
             </Field>
             <Field label="Role">
               <Select name="role">
-                <option>Sales User</option>
-                <option>Accountant</option>
-                <option>Store Manager</option>
-                <option>Recovery Staff</option>
-                <option>Viewer</option>
+                {masters.roles
+                  .filter((r) => r.name !== "Owner / Admin")
+                  .map((r) => (
+                    <option key={r.name}>{r.name}</option>
+                  ))}
               </Select>
             </Field>
-            <Field label="Initial password" required>
-              <Input name="password" type="password" minLength={8} required />
+            <Field label="Initial password" required hint="At least 6 characters.">
+              <Input name="password" type="password" minLength={6} required autoComplete="new-password" />
             </Field>
           </>
         )}
-        {type !== "party" && type !== "user" && (
+        {dateField && (
           <Field label="Date">
-            <Input name="date" type="date" defaultValue={today} required />
+            <Input name="date" type="date" defaultValue={today} max={today} required />
           </Field>
         )}
-        {type !== "user" && (
+        {type !== "user" && type !== "product" && type !== "account" && type !== "party" && (
           <Field label={type === "adjust" ? "Additional notes" : "Notes"}>
             <Textarea name="notes" rows={2} placeholder="Optional details…" />
           </Field>
@@ -894,10 +938,18 @@ export function EntryForm({
               : type === "adjust"
                 ? "Review adjustment"
                 : type === "party"
-                  ? "Add party"
-                  : type === "user"
-                    ? "Add user"
-                    : "Save"}
+                  ? editing
+                    ? "Save changes"
+                    : "Add party"
+                  : type === "product"
+                    ? editing
+                      ? "Save changes"
+                      : "Add product"
+                    : type === "account"
+                      ? "Add account"
+                      : type === "user"
+                        ? "Add user"
+                        : "Save"}
         </Button>
       </div>
     </form>
@@ -907,45 +959,26 @@ export function EntryForm({
 export function PartyDetails({
   party,
   supplier = false,
-  sales,
-  collections,
   onAction,
 }: {
   party: Party
   supplier?: boolean
-  sales: Transaction[]
-  collections: Collection[]
   onAction: (action: string) => void
 }) {
   const [tab, setTab] = useState("Ledger / Khata")
-  const [start, setStart] = useState("2025-06-01")
+  const [start, setStart] = useState("")
   const [end, setEnd] = useState(today)
-  const transactions = sales.filter((s) => s.party === party.name)
-  const payments = collections.filter((c) => c.party === party.name)
-  const ledger = [
-    ...transactions.map((s) => ({
-      id: s.id,
-      date: s.date,
-      description: supplier ? "Purchase invoice" : "Sales invoice",
-      debit: s.total,
-      credit: s.paid,
-    })),
-    ...payments.map((c) => ({
-      id: c.id,
-      date: c.date,
-      description: c.notes || "Payment received",
-      debit: 0,
-      credit: c.amount,
-    })),
-  ].sort((a, b) => a.date.localeCompare(b.date))
-  let running =
-    party.balance - ledger.reduce((s, r) => s + r.debit - r.credit, 0)
-  const withBalance = ledger
-    .map((r) => {
-      running += r.debit - r.credit
-      return { ...r, balance: running }
-    })
-    .filter((r) => r.date >= start && r.date <= end)
+  const [view, setView] = useState<LedgerView>({ rows: [], aging: [0, 0, 0, 0] })
+  useEffect(() => {
+    let alive = true
+    void api("ledger:get", { kind: supplier ? "supplier" : "customer", id: party.id }).then((v) => alive && setView(v)).catch(() => null)
+    return () => {
+      alive = false
+    }
+  }, [party.id, party.balance, supplier])
+  const withBalance = view.rows
+    .map((r) => ({ ...r, id: r.ref || String(r.id) }))
+    .filter((r) => (!start || r.date >= start) && (!end || r.date <= end))
   return (
     <>
       <div className="party-detail-header">
@@ -959,10 +992,11 @@ export function PartyDetails({
         <div>
           <Heading level={2}>{party.name}</Heading>
           <p>
-            {party.id} · {party.city} · {party.phone}
+            {[party.id, party.city, party.phone].filter(Boolean).join(" · ")}
           </p>
           <span className="muted">
-            Payment terms: 30 days · Credit limit: {money(party.limit)}
+            Payment terms: {party.terms ? `${party.terms} days` : "not set"}
+            {!supplier && <> · Credit limit: {party.limit ? money(party.limit) : "none"}</>}
           </span>
         </div>
         <div className="party-detail-balance">
@@ -979,6 +1013,10 @@ export function PartyDetails({
         <Button onClick={() => onAction("sale")}>
           <Plus size={15} />
           {supplier ? "New purchase" : "New sale"}
+        </Button>
+        <Button onClick={() => onAction("edit")}>
+          <Pencil size={15} />
+          Edit details
         </Button>
         <Button onClick={() => window.print()}>
           <Printer size={15} />
@@ -1013,22 +1051,12 @@ export function PartyDetails({
         </div>
         {tab === "Aging" ? (
           <div className="aging-grid">
-            {["0–30 days", "31–60 days", "61–90 days", "90+ days"].map(
-              (a, i) => (
-                <div key={a}>
-                  <span>{a}</span>
-                  <strong className={i > 0 ? "red-text" : ""}>
-                    {money(
-                      i === 0
-                        ? party.balance * 0.65
-                        : i === 1
-                          ? party.balance * 0.35
-                          : 0,
-                    )}
-                  </strong>
-                </div>
-              ),
-            )}
+            {["0–30 days", "31–60 days", "61–90 days", "90+ days"].map((a, i) => (
+              <div key={a}>
+                <span>{a}</span>
+                <strong className={i > 0 && view.aging[i] ? "red-text" : ""}>{money(view.aging[i] ?? 0)}</strong>
+              </div>
+            ))}
           </div>
         ) : (
           <DataTable
@@ -1086,11 +1114,18 @@ export function InvoicePreview({
   transaction,
   collection,
   onClose,
+  canVoid = false,
+  onVoid,
 }: {
   transaction?: Transaction
   collection?: Collection
   onClose: () => void
+  purchase?: boolean
+  canVoid?: boolean
+  onVoid?: (reason: string) => void | Promise<void>
 }) {
+  const [voiding, setVoiding] = useState(false)
+  const [reason, setReason] = useState("")
   const [layout, setLayout] = useState("A4 invoice")
   const { business } = useBusiness()
   const receipt = !!collection
@@ -1101,6 +1136,12 @@ export function InvoicePreview({
           <Badge tone="green">Saved</Badge>{" "}
           {receipt ? "Payment receipt" : "Invoice preview"}
         </span>
+        {transaction?.status === "void" && <Badge tone="red">Cancelled</Badge>}
+        {canVoid && onVoid && transaction && transaction.status !== "void" && !voiding && (
+          <Button variant="ghost" onClick={() => setVoiding(true)}>
+            Cancel invoice
+          </Button>
+        )}
         <Select
           aria-label="Print layout"
           value={layout}
@@ -1110,6 +1151,21 @@ export function InvoicePreview({
           <option>Thermal receipt</option>
         </Select>
       </div>
+      {voiding && transaction && onVoid && (
+        <div className="confirm-notice">
+          <strong>Cancel {transaction.id}?</strong>
+          <p>The invoice is kept and marked cancelled. Stock, the party balance and any money received are reversed. This cannot be undone.</p>
+          <Field label="Reason" required>
+            <Input aria-label="Reason for cancelling" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Entered by mistake" />
+          </Field>
+          <div className="modal-footer">
+            <Button onClick={() => setVoiding(false)}>Keep invoice</Button>
+            <Button variant="primary" disabled={!reason.trim()} onClick={() => void onVoid(reason.trim())}>
+              Cancel invoice
+            </Button>
+          </div>
+        </div>
+      )}
       <div
         className={`invoice-paper ${
           layout === "Thermal receipt" ? "thermal" : ""
@@ -1141,11 +1197,10 @@ export function InvoicePreview({
           <div>
             <span>{receipt ? "Received from" : "Bill to"}</span>
             <strong>{transaction?.party || collection?.party}</strong>
-            <span>Lahore, Pakistan</span>
           </div>
           <div>
             <span>Date: {transaction?.date || collection?.date}</span>
-            <span>Prepared by: Ahmed Ali</span>
+            <span>Prepared by: {transaction?.user || collection?.user || "—"}</span>
           </div>
         </div>
         {receipt ? (
@@ -1158,19 +1213,7 @@ export function InvoicePreview({
           </div>
         ) : (
           <DataTable
-            rows={
-              transaction?.lines || [
-                {
-                  productId: "sample",
-                  name: "Wholesale fabric (invoice summary)",
-                  color: "Mixed",
-                  size: 30,
-                  qty: transaction?.items || 0,
-                  rate: (transaction?.total || 0) / (transaction?.items || 1),
-                  discount: 0,
-                },
-              ]
-            }
+            rows={transaction?.lines ?? []}
             columns={[
               {
                 key: "name",
@@ -1182,7 +1225,7 @@ export function InvoicePreview({
                   </div>
                 ),
               },
-              { key: "size", label: "Than size", render: (r) => `${r.size}m` },
+              { key: "size", label: L.size, render: (r) => r.size || "—" },
               { key: "qty", label: "Qty", right: true },
               {
                 key: "rate",
@@ -1251,10 +1294,12 @@ export function InvoicePreview({
 export function StockDetails({
   product,
   onAdjust,
+  onEdit,
   movements,
 }: {
   product: Product
   onAdjust: () => void
+  onEdit?: () => void
   movements: {
     id: string
     date: string
@@ -1277,21 +1322,21 @@ export function StockDetails({
             {product.company} · {product.article} · {product.color}
           </p>
           <span className="muted">
-            {product.id} · {product.size} meters per Than
+            {[product.id, product.size].filter(Boolean).join(" · ")}
           </span>
         </div>
         <div className="stock-detail-number">
           <strong>{product.stock}</strong>
-          <span>Thans available</span>
+          <span>{L.units} available</span>
         </div>
       </div>
       <div className="stock-price-row">
         <div>
-          <span>Average cost / Than</span>
+          <span>Average cost {L.perUnit}</span>
           <strong>{money(product.cost)}</strong>
         </div>
         <div>
-          <span>Selling price / Than</span>
+          <span>Selling price {L.perUnit}</span>
           <strong>{money(product.rate)}</strong>
         </div>
         <div>
@@ -1304,6 +1349,12 @@ export function StockDetails({
           <Heading level={2}>Stock movement</Heading>
           <p>Every stock change, with a clear reference</p>
         </div>
+        {onEdit && (
+          <Button onClick={onEdit}>
+            <Pencil size={15} />
+            Edit product
+          </Button>
+        )}
         <Button onClick={onAdjust}>
           <Package size={15} />
           Adjust stock
@@ -1348,7 +1399,7 @@ export function StockDetails({
       />
       <div className="panel-note">
         <ShieldCheck size={14} />
-        Stock is tracked separately for each article, variant and Than size.
+        Stock is tracked separately for each item and variant.
       </div>
     </>
   )

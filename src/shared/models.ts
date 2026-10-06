@@ -30,13 +30,16 @@ export type Product = {
   sku?: string
   stock: number
   cost: number
+  /** the sale price */
   rate: number
+  /** what the sales screen charges by default: the wholesale price when that feature is on and set, otherwise the sale price */
+  price: number
   wholesale?: number
   minStock: number
   expiry?: string
   active: boolean
 }
-export type CartItem = { productId: string; name: string; color: string; size: string; qty: number; rate: number; discount: number }
+export type CartItem = { productId: string; name: string; color: string; size: string; qty: number; rate: number; discount: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
 export type Transaction = {
   id: string
   party: string
@@ -94,6 +97,42 @@ export type Snapshot = {
   returns: ReturnRow[]
   closings: Closing[]
   masters: Masters
+  dashboard: DashboardData
+}
+
+export type DashboardData = {
+  todaySales: number
+  todaySalesCount: number
+  todayRecovery: number
+  todayRecoveryCount: number
+  todayPurchases: number
+  todayPurchaseCount: number
+  todayExpenses: number
+  grossProfit: number
+  /** percent of net sales, or null when there were no sales */
+  margin: number | null
+  receivables: number
+  payables: number
+  stockValue: number
+  receivedCash: number
+  receivedBank: number
+  salesReceived: number
+  week: { label: string; value: number }[]
+  weekPrev: number
+  month: { label: string; value: number }[]
+  monthPrev: number
+  expiring: { product: string; batch: string; expiry: string; qty: number; days: number }[]
+  cities: { city: string; sales: number; recovery: number; outstanding: number; parties: number }[]
+}
+
+export type LedgerRow = { id: number; date: string; ref: string; description: string; debit: number; credit: number; balance: number }
+export type LedgerView = { rows: LedgerRow[]; aging: number[] }
+
+export type ReportResult = {
+  columns: { key: string; label: string; kind?: "money" | "number" | "text" }[]
+  rows: Record<string, string | number>[]
+  summary: { label: string; value: number | string; kind: "money" | "number" | "text"; tone?: string }[]
+  note?: string
 }
 
 export type SessionUser = { id: number; name: string; username: string; role: string; permissions: string[] }

@@ -35,7 +35,7 @@ export interface BackupInfo {
   modified: string
 }
 
-import type { Snapshot, SessionUser } from "./models"
+import type { Snapshot, SessionUser, LedgerView, ReportResult } from "./models"
 
 type Id = string
 
@@ -53,6 +53,8 @@ export interface IpcContract {
   "auth:logout": { req: undefined; res: null }
   "auth:changePassword": { req: { current: string; next: string }; res: null }
   "snapshot:get": { req: undefined; res: Snapshot }
+  "report:run": { req: { name: string; from: string; to: string; filter?: string }; res: ReportResult }
+  "ledger:get": { req: { kind: "customer" | "supplier"; id: Id }; res: LedgerView }
   "business:get": { req: undefined; res: Business }
   "business:set": { req: Business; res: Business }
   "config:get": { req: undefined; res: AppConfig }
@@ -92,7 +94,7 @@ export interface IpcContract {
   "health:get": { req: undefined; res: { integrityOk: boolean; lastBackupAt: string | null; problems: string[] } }
 }
 export type Channel = keyof IpcContract
-const CHANNEL_LIST = ["app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "health:get"] as Channel[]
+const CHANNEL_LIST = ["report:run", "ledger:get", "app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "health:get"] as Channel[]
 export const CHANNELS: Channel[] = CHANNEL_LIST
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }

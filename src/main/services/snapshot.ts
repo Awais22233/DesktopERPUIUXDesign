@@ -1,5 +1,6 @@
 import type { DB } from "../db/connection"
 import { getSetting } from "../db/util"
+import { buildDashboard } from "./dashboard"
 import { SETTING_KEYS, fmtId, type Audit, type CartItem, type Masters, type Snapshot, type Transaction } from "@shared/models"
 
 const r = (minor: number) => minor / 100
@@ -68,6 +69,25 @@ function auditText(action: string, d: Record<string, unknown>): { action: string
   }
 }
 
+const docCache = new WeakMap<DB, Map<string, string>>()
+/** The document number a stock/ledger/cash entry came from (INV-00001, RCT-00004, ...). */
+export function docLabel(db: DB, src: string | null, id: number | null): string {
+  if (!src || id == null) return ""
+  let cache = docCache.get(db)
+  if (!cache) docCache.set(db, (cache = new Map()))
+  const key = `${src}:${id}`
+  if (cache.has(key)) return cache.get(key)!
+  const q: Record<string, string> = {
+    sale: "SELECT invoice_no AS n FROM sales WHERE id = ?", purchase: "SELECT purchase_no AS n FROM purchases WHERE id = ?",
+    payment: "SELECT doc_no AS n FROM payments WHERE id = ?", sale_return: "SELECT return_no AS n FROM sale_returns WHERE id = ?",
+    purchase_return: "SELECT return_no AS n FROM purchase_returns WHERE id = ?",
+  }
+  let v = src === "expense" ? fmtId("EXP", id) : src === "transfer" ? fmtId("TRF", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
+  if (!v && q[src]) v = ((db.prepare(q[src]).get(id) as { n: string } | undefined)?.n) ?? ""
+  cache.set(key, v)
+  return v
+}
+
 export function buildMasters(db: DB): Masters {
   const settings: Record<string, string> = {}
   for (const k of SETTING_KEYS) {
@@ -126,6 +146,7 @@ export function buildSnapshot(db: DB): Snapshot {
   const parties = (db.prepare(`SELECT p.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM parties p LEFT JOIN cities c ON c.id = p.city_id LEFT JOIN v_customer_balance b ON b.party_id = p.id WHERE p.is_walk_in = 0 ORDER BY p.name`).all() as never[]).map((x) => partyRow(x, "PTY"))
   const suppliers = (db.prepare(`SELECT s.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM suppliers s LEFT JOIN cities c ON c.id = s.city_id LEFT JOIN v_supplier_balance b ON b.supplier_id = s.id ORDER BY s.name`).all() as never[]).map((x) => partyRow(x, "SUP"))
 
+  const wholesaleOn = (db.prepare("SELECT enabled FROM feature_flags WHERE key = 'wholesalePrice'").get() as { enabled: number } | undefined)?.enabled === 1
   const products = (db.prepare(`
     SELECT v.*, i.name AS article, co.name AS company, COALESCE(cat.name,'') AS category, COALESCE(sl.qty,0) AS stock, COALESCE(sl.avg_cost,0) AS avg_cost,
            (SELECT MIN(b.expiry_date) FROM batches b WHERE b.variant_id = v.id AND b.expiry_date IS NOT NULL
@@ -147,6 +168,7 @@ export function buildSnapshot(db: DB): Snapshot {
     stock: v.stock,
     cost: r(v.avg_cost || v.purchase_price),
     rate: r(v.sale_price),
+    price: r(wholesaleOn && v.wholesale_price != null ? v.wholesale_price : v.sale_price),
     wholesale: v.wholesale_price == null ? undefined : r(v.wholesale_price),
     minStock: v.min_stock,
     expiry: v.expiry ?? undefined,
@@ -210,21 +232,7 @@ export function buildSnapshot(db: DB): Snapshot {
     id: fmtId("EXP", x.id), category: x.category, amount: r(x.amount), account: x.account, date: bizDate(x.ts, off), notes: x.description ?? "", user: x.usr ?? "",
   }))
 
-  const docNo = new Map<string, string>()
-  const label = (src: string | null, id: number | null): string => {
-    if (!src || id == null) return ""
-    const key = `${src}:${id}`
-    if (docNo.has(key)) return docNo.get(key)!
-    const q: Record<string, string> = {
-      sale: "SELECT invoice_no AS n FROM sales WHERE id = ?", purchase: "SELECT purchase_no AS n FROM purchases WHERE id = ?",
-      payment: "SELECT doc_no AS n FROM payments WHERE id = ?", sale_return: "SELECT return_no AS n FROM sale_returns WHERE id = ?",
-      purchase_return: "SELECT return_no AS n FROM purchase_returns WHERE id = ?",
-    }
-    let v = src === "expense" ? fmtId("EXP", id) : src === "transfer" ? fmtId("TRF", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
-    if (!v && q[src]) v = ((db.prepare(q[src]).get(id) as { n: string } | undefined)?.n) ?? ""
-    docNo.set(key, v)
-    return v
-  }
+  const label = (src: string | null, id: number | null) => docLabel(db, src, id)
 
   const movements = (db.prepare(`SELECT m.id, m.ts, m.variant_id, m.qty_delta, m.type, m.source_type, m.source_id, m.note FROM stock_movements m WHERE m.ts >= ? ORDER BY m.ts DESC, m.id DESC LIMIT 4000`).all(since) as Record<string, any>[]).map((m) => ({
     id: label(m.source_type, m.source_id) || fmtId("MOV", m.id), date: bizDate(m.ts, off), type: MOVEMENT_LABEL[m.type] ?? m.type, quantity: m.qty_delta, productId: fmtId("VAR", m.variant_id), reason: m.note ?? "",
@@ -262,5 +270,6 @@ export function buildSnapshot(db: DB): Snapshot {
     today, historyFrom, walkInId: walk ? fmtId("PTY", walk.id) : "",
     parties, suppliers, products, sales: docs("sale"), purchases: docs("purchase"), collections, expenses, movements, accounts, entries, users, audits, returns, closings,
     masters: buildMasters(db),
+    dashboard: buildDashboard(db, today),
   }
 }

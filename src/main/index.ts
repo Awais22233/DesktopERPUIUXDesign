@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, session, shell } from "electron"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
@@ -130,7 +130,9 @@ function computeLicense(keyText: string | null): LicenseStatus {
   machineId ??= getMachineId()
   if (devBypass()) return { state: "valid", machineId, message: "Development mode", client: "Development", profile: getConfig(db).profile }
   const now = new Date()
-  const status = evaluateLicense(keyText, { publicKey: PUBLIC_KEY_PEM, machineId, now, lastSeen: readLastSeen(dataDir) })
+  // Automated UI tests sign their own licenses with a throw-away key. A packaged build never honours this.
+  const publicKey = (!app.isPackaged && process.env.ERP_TEST_PUBLIC_KEY) || PUBLIC_KEY_PEM
+  const status = evaluateLicense(keyText, { publicKey, machineId, now, lastSeen: readLastSeen(dataDir) })
   if (status.state !== "valid") return status
 
   // The license decides the business type. A copy of the data from another kind of business is refused.
@@ -247,35 +249,34 @@ function createWindow(): void {
   else void win.loadFile(join(here, "../renderer/index.html"))
 }
 
+/** Test hook (never used by customers): runs a script inside the real window, then screenshots chosen pages. */
 async function smoke(): Promise<void> {
   const w = win!
   await new Promise<void>((r) => w.webContents.once("did-finish-load", () => r()))
   await new Promise((r) => setTimeout(r, 1200))
+  const dir = process.env.ERP_SMOKE_DIR ?? "/tmp"
   const key = JSON.stringify(process.env.ERP_SMOKE_LICENSE ?? "")
-  const js = `(async () => {
-    const api = window.api
-    const before = { status: await api.invoke('license:status'), config: await api.invoke('config:get'), business: await api.invoke('business:get') }
-    const bad = await api.invoke('license:activate', { key: 'ERP1.bad.key' })
-    const good = ${key} ? await api.invoke('license:activate', { key: ${key} }) : null
-    const after = good ? { config: await api.invoke('config:get'), business: await api.invoke('business:get'),
-      saved: await api.invoke('business:set', { name: 'Faraz Cloth House', tagline: 'Wholesale cloth', owner: 'Faraz', phone: '0300', email: '', address: 'Market', city: 'Ghotki', logo: '', invoiceFooter: 'Thanks' }),
-      badLogo: await api.invoke('business:set', { name: 'X', tagline: '', owner: '', phone: '', email: '', address: '', city: '', logo: 'javascript:alert(1)', invoiceFooter: '' }),
-      setProfileChannel: await api.invoke('config:setProfile', { profile: 'cosmetics' }).catch((e) => String(e.message)) } : null
-    return { before, bad, good, after, hasNodeInRenderer: typeof require !== 'undefined' || typeof process !== 'undefined', title: document.title,
-      nav: [...document.querySelectorAll('nav .nav-item span')].length, activationShown: !!document.querySelector('.activation-card'),
-      brand: document.querySelector('.brand-lockup strong, .sidebar-brand strong')?.textContent }
-  })()`
+  const body = process.env.ERP_SMOKE_SCRIPT ? readFileSync(process.env.ERP_SMOKE_SCRIPT, "utf8") : "return null"
+  const js = `(async () => { const api = window.api; if (${key}) await api.invoke('license:activate', { key: ${key} }); ${body} })()`
   const result = await w.webContents.executeJavaScript(js)
-  const shot = process.env.ERP_SMOKE_SHOT
-  if (shot) writeFileSync(shot, (await w.webContents.capturePage()).toPNG())
-  if (process.env.ERP_SMOKE_LICENSE && shot) {
-    // After activation, reload the way a restart would and capture the real application.
-    w.webContents.reload()
-    await new Promise<void>((r) => w.webContents.once("did-finish-load", () => r()))
-    await new Promise((r) => setTimeout(r, 1500))
-    writeFileSync(shot.replace(".png", "-after.png"), (await w.webContents.capturePage()).toPNG())
-  }
   console.log("SMOKE_RESULT " + JSON.stringify(result))
+  w.webContents.reload()
+  await new Promise<void>((r) => w.webContents.once("did-finish-load", () => r()))
+  await new Promise((r) => setTimeout(r, 1800))
+  const pages = (process.env.ERP_SMOKE_PAGES ?? "").split(",").filter(Boolean)
+  const errors: string[] = []
+  w.webContents.on("console-message", (_e, level, message) => {
+    if (level >= 3) errors.push(message)
+  })
+  let n = 0
+  for (const page of pages) {
+    const clicked = await w.webContents.executeJavaScript(`(() => { const el = [...document.querySelectorAll('nav .nav-item, nav a, nav button')].find(e => e.textContent.trim().startsWith(${JSON.stringify(page)})); if (el) { el.click(); return true } return false })()`)
+    await new Promise((r) => setTimeout(r, 900))
+    const crashed = await w.webContents.executeJavaScript("document.body.innerText.includes('Something went wrong') || document.getElementById('root').children.length === 0")
+    writeFileSync(join(dir, `${String(++n).padStart(2, "0")}-${page.replace(/[^a-z0-9]/gi, "_")}.png`), (await w.webContents.capturePage()).toPNG())
+    console.log(`SMOKE_PAGE ${page} clicked=${clicked} blank=${crashed}`)
+  }
+  console.log("SMOKE_ERRORS " + JSON.stringify(errors))
   await backups.run("close")
   db.close()
   app.exit(0)

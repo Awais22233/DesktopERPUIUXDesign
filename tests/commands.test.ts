@@ -141,3 +141,48 @@ describe("end to end through the command layer (what the screens call)", () => {
     expect(back).toEqual([{ batch_no: "B1", q: 5 }, { batch_no: "B2", q: 10 }]) // restored to the same batches
   })
 })
+
+describe("statements and aging", () => {
+  it("shows the real running ledger and ages unpaid charges oldest-first", async () => {
+    const { c, db } = await app()
+    const party = (await c["party:save"]({ kind: "customer", name: "Ali Traders" })).id
+    const sup = (await c["party:save"]({ kind: "supplier", name: "ABC" })).id
+    const v = (await c["product:save"]({ company: "F", article: "A", cost: 100, rate: 150 })).id
+    await c["purchase:create"]({ supplierId: sup, lines: [{ productId: v, qty: 100, rate: 100 }], payments: [] })
+    await c["sale:create"]({ partyId: party, lines: [{ productId: v, qty: 10 }], payments: [] }) // 1,500
+    await c["sale:create"]({ partyId: party, lines: [{ productId: v, qty: 10 }], payments: [] }) // 1,500
+    // make the first invoice 70 days old and the second 10 days old
+    const day = 86_400_000
+    db.prepare("UPDATE ledger_entries SET ts = ? WHERE source_type='sale' AND source_id = 1").run(new Date(Date.now() - 70 * day).toISOString())
+    db.prepare("UPDATE ledger_entries SET ts = ? WHERE source_type='sale' AND source_id = 2").run(new Date(Date.now() - 10 * day).toISOString())
+    await c["receipt:create"]({ partyId: party, account: "Cash in hand", method: "Cash", amount: 1000, date: undefined })
+    const l = await c["ledger:get"]({ kind: "customer", id: party })
+    expect(l.rows.map((r) => [r.description, r.debit, r.credit, r.balance])).toEqual([
+      ["Sale INV-00001", 1500, 0, 1500],
+      ["Sale INV-00002", 1500, 0, 3000],
+      ["Payment RCT-00001", 0, 1000, 2000],
+    ])
+    expect(l.rows[0]!.ref).toBe("INV-00001")
+    // the 1,000 payment clears part of the OLDEST invoice: 500 left at 61-90 days, 1,500 at 0-30 days
+    expect(l.aging).toEqual([1500, 0, 500, 0])
+    expect(l.aging.reduce((s, x) => s + x, 0)).toBe(2000)
+  })
+})
+
+describe("what the sales screen charges", () => {
+  it("shows the same default price the engine charges, so an ordinary salesperson is never blocked", async () => {
+    const { c, db, session } = await app()
+    const party = (await c["party:save"]({ kind: "customer", name: "P" })).id
+    const sup = (await c["party:save"]({ kind: "supplier", name: "S" })).id
+    const v = (await c["product:save"]({ company: "F", article: "A", cost: 1000, rate: 1500, wholesale: 1400 })).id
+    await c["purchase:create"]({ supplierId: sup, lines: [{ productId: v, qty: 5, rate: 1000 }], payments: [] })
+    const p = (await c["snapshot:get"](undefined)).products[0]!
+    expect(p).toMatchObject({ rate: 1500, wholesale: 1400, price: 1400 }) // wholesale feature is on for cloth
+    await c["user:create"]({ name: "Sam", username: "sam", password: "abcdef", role: "Sales User" })
+    session.logout(db)
+    session.login(db, "sam", "abcdef")
+    const sale = await c["sale:create"]({ partyId: party, lines: [{ productId: v, qty: 1, rate: p.price }], payments: [] })
+    expect(sale.id).toBe("INV-00001")
+    expect(await fail(() => c["sale:create"]({ partyId: party, lines: [{ productId: v, qty: 1, rate: 1 }], payments: [] }))).toMatch(/price_override/)
+  })
+})

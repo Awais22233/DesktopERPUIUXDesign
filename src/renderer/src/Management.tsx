@@ -1,6 +1,9 @@
-import { useConfig, profiles, featureMeta, type ProfileId } from "./config"
+import { useConfig, profiles, featureMeta } from "./config"
 import { BrandMark, useBusiness } from "./business"
-import { useRef, useState } from "react"
+import { api } from "./backend"
+import type { BackupInfo } from "@shared/ipc"
+import type { Masters, ReportResult, ReturnRow } from "@shared/models"
+import { useEffect, useRef, useState } from "react"
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -48,6 +51,7 @@ import {
   downloadFile,
 } from "./ui"
 import {
+  L,
   money,
   reportGroups,
   today,
@@ -61,29 +65,54 @@ import {
 export function Reports({
   selected,
   onSelect,
-  sales,
-  purchases,
+  historyFrom,
   parties,
-  products,
-  expenses,
-  collections,
+  suppliers,
+  companies,
+  cities,
+  accounts,
+  canExport,
 }: {
   selected?: string
   onSelect: (report: string) => void
-  sales: Transaction[]
-  purchases: Transaction[]
+  historyFrom: string
   parties: Party[]
-  products: Product[]
-  expenses: Expense[]
-  collections: Collection[]
+  suppliers: Party[]
+  companies: string[]
+  cities: string[]
+  accounts: { name: string; type: string }[]
+  canExport: boolean
 }) {
   const { business } = useBusiness()
+  const { isEnabled } = useConfig()
   const [group, setGroup] = useState("Sales")
   const [query, setQuery] = useState("")
-  const [from, setFrom] = useState("2025-06-01")
+  const [from, setFrom] = useState(historyFrom)
   const [to, setTo] = useState(today)
-  const [range, setRange] = useState({ from: "2025-06-01", to: today })
+  const [range, setRange] = useState({ from: historyFrom, to: today })
+  const [filter, setFilter] = useState("")
+  const [data, setData] = useState<ReportResult | null>(null)
+  const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!selected) return
+    let alive = true
+    setLoading(true)
+    setError("")
+    api("report:run", { name: selected, from: range.from, to: range.to, filter: filter || undefined })
+      .then((r) => alive && setData(r))
+      .catch((e) => alive && (setError((e as Error).message), setData(null)))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [selected, range, filter, tick])
+  const visibleGroups = Object.fromEntries(
+    Object.entries(reportGroups)
+      .map(([g, list]) => [g, list.filter((r) => (r === "Sales by City" || r === "City-wise Analysis" || r === "City Profitability" ? isEnabled("cityWise") : /Near Expiry|Expired Items|Batch Stock/.test(r) ? isEnabled("expiry") || isEnabled("batch") : true))])
+      .filter(([, list]) => (list as string[]).length > 0),
+  ) as Record<string, string[]>
   if (!selected)
     return (
       <>
@@ -125,14 +154,14 @@ export function Reports({
           <div className="report-browser">
             <div className="report-categories">
               <Heading level={3}>REPORT CATEGORIES</Heading>
-              {Object.keys(reportGroups).map((g) => (
+              {Object.keys(visibleGroups).map((g) => (
                 <Action
                   key={g}
                   onClick={() => setGroup(g)}
                   className={group === g ? "active" : ""}
                 >
                   {g}
-                  <span>{reportGroups[g].length}</span>
+                  <span>{visibleGroups[g].length}</span>
                 </Action>
               ))}
             </div>
@@ -145,7 +174,7 @@ export function Reports({
                   placeholder="Find a report…"
                 />
               </div>
-              {reportGroups[group]
+              {(visibleGroups[group] ?? [])
                 .filter((r) => r.toLowerCase().includes(query.toLowerCase()))
                 .map((r, i) => (
                   <Action
@@ -174,72 +203,28 @@ export function Reports({
         </Panel>
       </>
     )
-  const isStock = /stock|inventory/i.test(selected)
-  const isOutstanding =
-    /outstanding|party|receivable|payable|aging|statement/i.test(selected)
-  const isProfit = /profit/i.test(selected)
-  const isPurchase = /purchase|supplier/i.test(selected) && !isOutstanding
-  const isExpense = selected === "Expenses"
-  const isCollection = /payments/i.test(selected)
-  const filteredSales = (isPurchase ? purchases : sales).filter(
-    (s) => s.date >= range.from && s.date <= range.to,
-  )
-  const total = filteredSales.reduce((s, r) => s + r.total, 0)
-  const received = filteredSales.reduce((s, r) => s + r.paid, 0)
-  const expenseTotal = expenses
-    .filter((e) => e.date >= range.from && e.date <= range.to)
-    .reduce((s, r) => s + r.amount, 0)
-  const profitRows = [
-    { id: "1", name: "Sales revenue", amount: total },
-    {
-      id: "2",
-      name: "Cost of goods sold (sample weighted cost)",
-      amount: -Math.round(total * 0.814),
-    },
-    { id: "3", name: "Gross profit", amount: Math.round(total * 0.186) },
-    { id: "4", name: "Operating expenses", amount: -expenseTotal },
-    {
-      id: "5",
-      name: "Net profit",
-      amount: Math.round(total * 0.186) - expenseTotal,
-    },
-  ]
-  const stockRows = products.filter((p) =>
-    selected === "Low Stock"
-      ? p.stock > 0 && p.stock < 10
-      : selected === "Out of Stock"
-        ? p.stock === 0
-        : true,
-  )
-  const exportRows = isStock
-    ? stockRows
-    : isOutstanding
-      ? parties
-      : isProfit
-        ? profitRows
-        : isExpense
-          ? expenses
-          : isCollection
-            ? collections
-            : filteredSales
-  const generate = () => {
-    setLoading(true)
-    setTimeout(() => {
-      setRange({ from, to })
-      setLoading(false)
-    }, 400)
-  }
+  const supplierReport = /supplier|purchase|payable/i.test(selected) && !/profit/i.test(selected)
+  const contextOptions = /Company/.test(selected)
+    ? companies
+    : /City/.test(selected)
+      ? cities
+      : /Cash Book/.test(selected)
+        ? accounts.filter((a) => a.type === "cash").map((a) => a.name)
+        : /Bank Book/.test(selected)
+          ? accounts.filter((a) => a.type === "bank").map((a) => a.name)
+          : supplierReport
+            ? suppliers.map((p) => p.name)
+            : parties.map((p) => p.name)
+  const cell = (kind: string | undefined, v: string | number) => (kind === "money" ? money(Number(v)) : kind === "number" ? Number(v).toLocaleString("en-PK") : String(v))
+  const fmtSummary = (x: ReportResult["summary"][number]) => (x.kind === "money" ? money(Number(x.value)) : x.kind === "number" ? Number(x.value).toLocaleString("en-PK") : String(x.value))
   return (
     <>
-      <PageHeading
-        title={selected}
-        description="Review, export or print your business report."
-      >
+      <PageHeading title={selected} description="Review, export or print your business report.">
         <Button onClick={() => onSelect("")}>
           <ArrowRight size={15} className="rotate-180" />
           All reports
         </Button>
-        <ExportButton name={selected} rows={exportRows} />
+        {canExport && data && <ExportButton name={selected} rows={data.rows.map((r) => Object.fromEntries(data.columns.map((c) => [c.label, r[c.key]])))} />}
         <Button onClick={() => window.print()}>
           <Printer size={15} />
           Print
@@ -248,251 +233,61 @@ export function Reports({
       <Panel>
         <div className="report-filters">
           <Field label="From date">
-            <Input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
+            <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
           </Field>
           <Field label="To date">
-            <Input
-              type="date"
-              value={to}
-              min={from}
-              onChange={(e) => setTo(e.target.value)}
-            />
+            <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </Field>
-          <Field label="Business context">
-            <Select>
-              <option>
-                All{" "}
-                {isPurchase ? "suppliers" : isStock ? "companies" : "parties"}
-              </option>
-              {(isStock
-                ? [...new Set(products.map((p) => p.company))]
-                : parties.map((p) => p.name)
-              ).map((p) => (
+          <Field label="Narrow down to">
+            <Select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="">Everything</option>
+              {contextOptions.map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </Select>
           </Field>
-          <Button variant="primary" onClick={generate}>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setRange({ from, to })
+              setTick((n) => n + 1)
+            }}
+          >
             <FileBarChart size={15} />
             Generate report
           </Button>
         </div>
       </Panel>
-      <div className="summary-grid three">
-        <Summary
-          label={
-            isStock
-              ? "Stock value"
-              : isOutstanding
-                ? "Total outstanding"
-                : isProfit
-                  ? "Sales revenue"
-                  : "Total amount"
-          }
-          value={money(
-            isStock
-              ? products.reduce((s, p) => s + p.stock * p.cost, 0)
-              : isOutstanding
-                ? parties.reduce((s, p) => s + p.balance, 0)
-                : total,
-          )}
-        />
-        <Summary
-          label={
-            isStock
-              ? "Total Thans"
-              : isOutstanding
-                ? "Parties with balances"
-                : "Total received"
-          }
-          value={
-            isStock
-              ? String(products.reduce((s, p) => s + p.stock, 0))
-              : isOutstanding
-                ? String(parties.filter((p) => p.balance > 0).length)
-                : money(received)
-          }
-        />
-        <Summary
-          label={
-            isProfit
-              ? "Net profit"
-              : isStock
-                ? "Low stock products"
-                : "Remaining balance"
-          }
-          value={
-            isProfit
-              ? money(Math.round(total * 0.186) - expenseTotal)
-              : isStock
-                ? String(products.filter((p) => p.stock < 10).length)
-                : money(total - received)
-          }
-          tone={isProfit ? "green" : ""}
-        />
-      </div>
-      <Panel
-        title="Report details"
-        subtitle={`${range.from} to ${range.to} · ${business.name}`}
-      >
+      {data && (
+        <div className="summary-grid three">
+          {data.summary.map((x) => (
+            <Summary key={x.label} label={x.label} value={fmtSummary(x)} tone={x.tone ?? ""} />
+          ))}
+        </div>
+      )}
+      <Panel title="Report details" subtitle={`${range.from} to ${range.to} · ${business.name}`}>
         {loading ? (
           <Loading />
-        ) : isStock ? (
+        ) : error ? (
+          <div className="form-error">{error}</div>
+        ) : data ? (
           <DataTable
-            rows={stockRows}
+            rows={data.rows.map((r, i) => ({ ...r, id: String(i) })) as { id: string }[]}
             pagination
-            columns={[
-              { key: "name", label: "Product" },
-              { key: "company", label: "Company" },
-              { key: "color", label: "Variant" },
-              { key: "size", label: "Than size", render: (p) => `${p.size}m` },
-              { key: "stock", label: "Available Thans", right: true },
-              {
-                key: "cost",
-                label: "Avg. cost",
-                right: true,
-                render: (p) => money(p.cost),
-              },
-              {
-                key: "value",
-                label: "Stock value",
-                right: true,
-                render: (p) => money(p.stock * p.cost),
-              },
-            ]}
+            empty="Nothing to show for these dates."
+            columns={data.columns.map((c) => ({
+              key: c.key,
+              label: c.label,
+              right: c.kind === "money" || c.kind === "number",
+              render: (r: Record<string, string | number>) => (c.key === "ref" ? <span className="reference">{r[c.key]}</span> : cell(c.kind, r[c.key] as string | number)),
+            })) as never}
           />
-        ) : isOutstanding ? (
-          <DataTable
-            rows={parties.filter((p) => p.balance > 0)}
-            pagination
-            columns={[
-              { key: "id", label: "Code" },
-              { key: "name", label: "Party" },
-              { key: "city", label: "City" },
-              { key: "phone", label: "Phone" },
-              {
-                key: "balance",
-                label: "Outstanding",
-                right: true,
-                render: (p) => (
-                  <strong className="red-text">{money(p.balance)}</strong>
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                render: (p) => <Badge>{p.status}</Badge>,
-              },
-            ]}
-          />
-        ) : isProfit ? (
-          <DataTable
-            rows={profitRows}
-            columns={[
-              {
-                key: "name",
-                label: "Particulars",
-                render: (r) => <strong>{r.name}</strong>,
-              },
-              {
-                key: "amount",
-                label: "Amount (PKR)",
-                right: true,
-                render: (r) => (
-                  <strong
-                    className={
-                      r.amount < 0
-                        ? "red-text"
-                        : r.name.includes("profit")
-                          ? "green-text"
-                          : ""
-                    }
-                  >
-                    {money(r.amount)}
-                  </strong>
-                ),
-              },
-            ]}
-          />
-        ) : isExpense ? (
-          <DataTable
-            rows={expenses.filter(
-              (e) => e.date >= range.from && e.date <= range.to,
-            )}
-            columns={[
-              { key: "date", label: "Date" },
-              { key: "category", label: "Category" },
-              { key: "notes", label: "Notes" },
-              { key: "account", label: "Account" },
-              {
-                key: "amount",
-                label: "Amount",
-                right: true,
-                render: (e) => money(e.amount),
-              },
-            ]}
-          />
-        ) : isCollection ? (
-          <DataTable
-            rows={collections.filter(
-              (c) => c.date >= range.from && c.date <= range.to,
-            )}
-            columns={[
-              { key: "date", label: "Date" },
-              { key: "party", label: "Party" },
-              { key: "method", label: "Payment" },
-              {
-                key: "amount",
-                label: "Amount",
-                right: true,
-                render: (c) => money(c.amount),
-              },
-            ]}
-          />
-        ) : (
-          <DataTable
-            rows={filteredSales}
-            pagination
-            columns={[
-              { key: "date", label: "Date" },
-              {
-                key: "id",
-                label: "Invoice",
-                render: (r) => <span className="reference">{r.id}</span>,
-              },
-              { key: "party", label: isPurchase ? "Supplier" : "Party" },
-              { key: "items", label: "Thans", right: true },
-              {
-                key: "total",
-                label: "Total",
-                right: true,
-                render: (r) => money(r.total),
-              },
-              {
-                key: "paid",
-                label: "Paid",
-                right: true,
-                render: (r) => money(r.paid),
-              },
-              {
-                key: "remaining",
-                label: "Remaining",
-                right: true,
-                render: (r) => money(r.total - r.paid),
-              },
-            ]}
-          />
-        )}
+        ) : null}
       </Panel>
-      {isProfit && (
+      {data?.note && (
         <div className="info-notice report-disclaimer">
           <ShieldCheck size={16} />
-          Sample profitability uses an 18.6% gross margin. A production ledger
-          requires transaction-level weighted costs.
+          {data.note}
         </div>
       )}
     </>
@@ -518,13 +313,53 @@ export function Summary({
   )
 }
 
-export function Settings({ notify }: { notify: (message: string) => void }) {
-  const { profile, flags, setProfile, setFlag } = useConfig()
+const IMMEDIATE = ["Features", "Payment methods", "Cash / bank accounts", "Product categories", "Expense categories", "Than sizes", "Invoice numbering"]
+
+function ListEditor({ items, onAdd, onRemove, placeholder, empty }: { items: string[]; onAdd: (name: string) => unknown; onRemove?: (name: string) => unknown; placeholder: string; empty: string }) {
+  const [value, setValue] = useState("")
+  return (
+    <>
+      <div className="list-editor-add">
+        <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (value.trim()) { void onAdd(value.trim()); setValue("") } } }} />
+        <Button type="button" onClick={() => { if (value.trim()) { void onAdd(value.trim()); setValue("") } }}>
+          <Plus size={15} />
+          Add
+        </Button>
+      </div>
+      {items.length === 0 && <p className="muted">{empty}</p>}
+      {items.map((i) => (
+        <div className="setting-toggle" key={i}>
+          <div>
+            <strong>{i}</strong>
+          </div>
+          {onRemove && (
+            <Button type="button" variant="ghost" onClick={() => void onRemove(i)}>
+              Remove
+            </Button>
+          )}
+        </div>
+      ))}
+    </>
+  )
+}
+
+export function Settings({
+  notify,
+  masters,
+  run,
+  canManage,
+}: {
+  notify: (message: string) => void
+  masters: Masters
+  run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
+  canManage: boolean
+}) {
+  const { profile, flags, setFlag } = useConfig()
   const sections = [
     "Business setup",
     "Features",
-    "Sales settings",
-    "Purchase settings",
+    "Sales & credit",
+    "Printing",
     "Payment methods",
     "Cash / bank accounts",
     "Product categories",
@@ -532,13 +367,16 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
     "Than sizes",
     "Invoice numbering",
     "Return rules",
-    "Backup settings",
+    "Regional",
     "Security",
   ].filter((name) => name !== "Than sizes" || flags.than)
   const [section, setSection] = useState("Business setup")
   const { business, saveBusiness } = useBusiness()
   const [logoDraft, setLogoDraft] = useState(business.logo)
   const logoInput = useRef<HTMLInputElement>(null)
+  const st = masters.settings
+  const get = (k: string, d: string) => st[k] ?? d
+  const put = (key: string, value: string, message = "Saved.") => run(() => api("settings:set", { key, value })).then((r) => r !== undefined && notify(message))
   const pickLogo = (file: File | undefined) => {
     if (!file) return
     if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) return notify("Please choose a PNG, JPG, WebP or SVG image.")
@@ -547,18 +385,24 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
     reader.onload = () => setLogoDraft(String(reader.result))
     reader.readAsDataURL(file)
   }
-  const [settings, setSettings] = useState<Record<string, string>>(() => {
+  const [newCat, setNewCat] = useState("")
+  const [subOf, setSubOf] = useState("")
+  const [newSub, setNewSub] = useState("")
+  const [pw, setPw] = useState({ current: "", next: "", again: "" })
+  const jsonList = (key: string) => {
     try {
-      return JSON.parse(localStorage.getItem("raza-settings") || "{}")
+      const v = JSON.parse(get(key, "[]"))
+      return Array.isArray(v) ? (v as string[]) : []
     } catch {
-      return {}
+      return []
     }
-  })
+  }
+  const methods = masters.paymentMethods
   const save = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const f = new FormData(e.currentTarget)
+    const text = (k: string) => String(f.get(k) ?? "")
     if (section === "Business setup") {
-      const f = new FormData(e.currentTarget)
-      const text = (k: string) => String(f.get(k) ?? "")
       void saveBusiness({
         name: text("businessName"),
         tagline: text("tagline"),
@@ -572,48 +416,38 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
       }).then((error) => notify(error ?? "Business details saved."))
       return
     }
-    const next = {
-      ...settings,
-      ...Object.fromEntries(
-        Array.from(new FormData(e.currentTarget), ([key, value]) => [
-          key,
-          String(value),
-        ]),
-      ),
-    }
-    e.currentTarget
-      .querySelectorAll<HTMLInputElement>('input[type="checkbox"][name]')
-      .forEach((input) => {
-        next[input.name] = input.checked ? "on" : "off"
-      })
-    setSettings(next)
-    localStorage.setItem("raza-settings", JSON.stringify(next))
-    notify("Settings saved on this device.")
+    const pairs: [string, string][] =
+      section === "Sales & credit"
+        ? [["credit.limit_mode", text("mode")], ["sales.max_discount_percent", text("discount") || "100"], ["stock.allow_negative", f.get("negative") ? "on" : "off"], ["receipts.allow_overpayment", f.get("overpay") ? "on" : "off"]]
+        : section === "Printing"
+          ? [["invoice.layout", text("layout")], ["print.thermal_width", text("width")]]
+          : section === "Return rules"
+            ? [["returns.window_days", text("days") || "0"]]
+            : section === "Regional"
+              ? [["timezone_offset_minutes", text("offset")], ...(flags.expiry ? ([["expiry.warning_days", text("expiry") || "30"]] as [string, string][]) : [])]
+              : []
+    void (async () => {
+      for (const [k, v] of pairs) {
+        if ((await run(() => api("settings:set", { key: k, value: v }))) === undefined) return
+      }
+      notify("Settings saved.")
+    })()
   }
   return (
     <>
-      <PageHeading
-        title="Settings"
-        description="Make the application work the way your business does."
-      />
+      <PageHeading title="Settings" description="Make the application work the way your business does." />
       <div className="settings-layout">
         <Panel className="settings-navigation">
           {sections.map((s) => (
-            <Action
-              key={s}
-              onClick={() => setSection(s)}
-              className={section === s ? "active" : ""}
-            >
+            <Action key={s} onClick={() => setSection(s)} className={section === s ? "active" : ""}>
               {s}
               <ChevronRight size={15} />
             </Action>
           ))}
         </Panel>
-        <Panel
-          title={section}
-          subtitle="Changes apply to this local business workspace."
-        >
+        <Panel title={section} subtitle={canManage ? "Changes apply to this business." : "You can view these settings but not change them."}>
           <form key={section} onSubmit={save}>
+            <fieldset disabled={!canManage} className="settings-fieldset">
             <div className="settings-form">
               {section === "Business setup" ? (
                 <>
@@ -680,29 +514,10 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
                 </>
               ) : section === "Features" ? (
                 <>
-{window.api ? (
-                    <Field label="Business type">
-                      <Input value={profiles[profile].name} readOnly />
-                      <small className="muted">Set by your license. Contact your software provider to change it.</small>
-                    </Field>
-                  ) : (
-                                      <Field label="Business profile">
-                    <Select
-                      value={profile}
-                      onChange={async (e) => {
-                        const next = e.target.value as ProfileId
-                        const error = await setProfile(next)
-                        notify(error ?? `Profile changed to ${profiles[next].name}.`)
-                      }}
-                    >
-                      {(Object.keys(profiles) as ProfileId[]).map((id) => (
-                        <option key={id} value={id}>
-                          {profiles[id].name}
-                        </option>
-                      ))}
-                    </Select>
+<Field label="Business type">
+                    <Input value={profiles[profile].name} readOnly />
+                    <small className="muted">Set by your license. Contact your software provider to change it.</small>
                   </Field>
-                  )}
                   <div className="info-notice">
                     <Package size={17} />
                     Turning a feature off hides its screens and fields. Existing
@@ -727,150 +542,188 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
                       </div>
                     ))}
                 </>
+              ) : section === "Sales & credit" ? (
+                <>
+                  <Field label="Credit limit" hint="What happens when a sale would take a party above their credit limit.">
+                    <Select name="mode" defaultValue={get("credit.limit_mode", "off")}>
+                      <option value="off">Off: do not check</option>
+                      <option value="warn">Warn: show a warning but allow the sale</option>
+                      <option value="block">Block: refuse unless a permitted user overrides</option>
+                    </Select>
+                  </Field>
+                  <Field label="Discount above this percent needs permission" hint="100 means no limit.">
+                    <Input name="discount" type="number" min="0" max="100" defaultValue={get("sales.max_discount_percent", "100")} />
+                  </Field>
+                  <div className="setting-toggle">
+                    <div>
+                      <strong>Allow selling more than the stock shown</strong>
+                      <span>Normally off. When on, stock can go below zero.</span>
+                    </div>
+                    <Input type="checkbox" name="negative" defaultChecked={get("stock.allow_negative", "off") === "on"} />
+                  </div>
+                  <div className="setting-toggle">
+                    <div>
+                      <strong>Allow a payment larger than what is owed</strong>
+                      <span>Normally off. When on, a party can pay in advance.</span>
+                    </div>
+                    <Input type="checkbox" name="overpay" defaultChecked={get("receipts.allow_overpayment", "off") === "on"} />
+                  </div>
+                </>
+              ) : section === "Printing" ? (
+                <>
+                  <Field label="Default document layout">
+                    <Select name="layout" defaultValue={get("invoice.layout", "A4 invoice")}>
+                      <option>A4 invoice</option>
+                      <option>Thermal receipt</option>
+                    </Select>
+                  </Field>
+                  <Field label="Thermal paper width">
+                    <Select name="width" defaultValue={get("print.thermal_width", "80")}>
+                      <option value="80">80 mm</option>
+                      <option value="58">58 mm</option>
+                    </Select>
+                  </Field>
+                  <div className="info-notice">
+                    <Printer size={17} />
+                    You can switch between A4 and thermal on any invoice preview before printing.
+                  </div>
+                </>
+              ) : section === "Payment methods" ? (
+                <ListEditor
+                  items={methods}
+                  placeholder="e.g. Easypaisa"
+                  empty="No payment methods."
+                  onAdd={(n) => put("payment.methods", JSON.stringify([...methods, n]), "Payment method added.")}
+                  onRemove={methods.length > 1 ? (n) => put("payment.methods", JSON.stringify(methods.filter((m) => m !== n)), "Payment method removed.") : undefined}
+                />
+              ) : section === "Cash / bank accounts" ? (
+                <>
+                  <AccountsEditor accounts={masters.accounts} run={run} notify={notify} />
+                </>
+              ) : section === "Product categories" ? (
+                <>
+                  <p className="muted">Categories are optional. They help you filter and report; products work without them.</p>
+                  <Field label="Companies / brands">
+                    <ListEditor
+                      items={masters.companies}
+                      placeholder="New company or brand"
+                      empty="No companies yet. They are also created automatically when you add a product."
+                      onAdd={(n) => run(() => api("master:add", { kind: "company", name: n })).then((r) => r !== undefined && notify("Company added."))}
+                    />
+                  </Field>
+                  <Field label="Categories">
+                    <div className="list-editor-add">
+                      <Input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category" />
+                      <Button type="button" onClick={() => newCat.trim() && run(() => api("master:add", { kind: "category", name: newCat.trim() })).then((r) => r !== undefined && (setNewCat(""), notify("Category added.")))}>
+                        <Plus size={15} />
+                        Add
+                      </Button>
+                    </div>
+                  </Field>
+                  {masters.categories.map((c) => (
+                    <div className="setting-toggle" key={c.name}>
+                      <div>
+                        <strong>{c.name}</strong>
+                        <span>{c.sub.length ? c.sub.join(", ") : "No subcategories"}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {masters.categories.length > 0 && (
+                    <div className="list-editor-add">
+                      <Select value={subOf} onChange={(e) => setSubOf(e.target.value)}>
+                        <option value="">Add a subcategory to…</option>
+                        {masters.categories.map((c) => (
+                          <option key={c.name}>{c.name}</option>
+                        ))}
+                      </Select>
+                      <Input value={newSub} onChange={(e) => setNewSub(e.target.value)} placeholder="Subcategory name" />
+                      <Button type="button" onClick={() => subOf && newSub.trim() && run(() => api("master:add", { kind: "subcategory", name: newSub.trim(), parent: subOf })).then((r) => r !== undefined && (setNewSub(""), notify("Subcategory added.")))}>
+                        <Plus size={15} />
+                        Add
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : section === "Expense categories" ? (
+                <ListEditor items={masters.expenseCategories} placeholder="e.g. Fuel" empty="No expense categories." onAdd={(n) => run(() => api("master:add", { kind: "expenseCategory", name: n })).then((r) => r !== undefined && notify("Category added."))} />
               ) : section === "Than sizes" ? (
                 <>
                   <div className="info-notice">
                     <Package size={17} />
-                    Common Than sizes offered as suggestions when adding items.
-                    You can always type any size.
+                    Common sizes offered as suggestions when adding products. You can always type any size, such as "40 meter".
                   </div>
-                  {["25", "30", "40", "50"].map((size) => (
-                    <div className="setting-toggle" key={size}>
-                      <div>
-                        <strong>{size} meters</strong>
-                        <span>Available product Than size</span>
-                      </div>
-                      <Input
-                        type="checkbox"
-                        name={`than-${size}`}
-                        defaultChecked={size === "25" || size === "30"}
-                      />
-                    </div>
-                  ))}
-                </>
-              ) : /categories|methods|accounts/i.test(section) ? (
-                <>
-                  <Field label={section}>
-                    <Textarea
-                      name={section}
-                      rows={7}
-                      defaultValue={
-                        settings[section] ||
-                        (section === "Product categories"
-                          ? "Cotton\nWash & Wear\nLawn\nSuiting\nKhaddar\nDobby"
-                          : section === "Expense categories"
-                            ? "Transportation\nUtilities\nRent\nSalaries\nOffice supplies"
-                            : section === "Payment methods"
-                              ? "Cash\nBank transfer\nCheque"
-                              : "Cash in hand\nMeezan Bank\nHBL Business")
-                      }
-                    />
-                  </Field>
-                  <p className="muted">
-                    One entry per line. Existing transaction history is
-                    preserved.
-                  </p>
+                  <ListEditor
+                    items={jsonList("than.sizes")}
+                    placeholder='e.g. 40 meter'
+                    empty="No suggestions yet."
+                    onAdd={(n) => put("than.sizes", JSON.stringify([...jsonList("than.sizes"), n]), "Size added.")}
+                    onRemove={(n) => put("than.sizes", JSON.stringify(jsonList("than.sizes").filter((x) => x !== n)), "Size removed.")}
+                  />
                 </>
               ) : section === "Invoice numbering" ? (
+                <SequenceEditor sequences={masters.sequences} run={run} notify={notify} />
+              ) : section === "Return rules" ? (
                 <>
-                  <Field label="Sales invoice prefix">
-                    <Input
-                      name="salePrefix"
-                      defaultValue={settings.salePrefix || "INV-"}
-                    />
-                  </Field>
-                  <Field label="Purchase invoice prefix">
-                    <Input
-                      name="purchasePrefix"
-                      defaultValue={settings.purchasePrefix || "PUR-"}
-                    />
-                  </Field>
-                  <Field label="Next sales invoice number">
-                    <Input
-                      name="nextInvoice"
-                      type="number"
-                      min="1049"
-                      defaultValue="1049"
-                    />
+                  <Field label="Accept returns within (days)" hint="0 means there is no time limit. A person with the right permission can always override.">
+                    <Input name="days" type="number" min="0" max="3650" defaultValue={get("returns.window_days", "0")} />
                   </Field>
                   <div className="info-notice">
-                    <FileText size={17} />
-                    Invoice references must remain unique.
+                    <ShieldCheck size={17} />
+                    A return is always recorded against the original invoice. Returning without an invoice needs the "Accept a return without an invoice" permission.
                   </div>
+                </>
+              ) : section === "Regional" ? (
+                <>
+                  <Field label="Time zone (minutes ahead of UTC)" hint="Pakistan is 300 (UTC+5). This decides where one business day ends and the next begins.">
+                    <Input name="offset" type="number" min="-720" max="840" defaultValue={get("timezone_offset_minutes", "300")} />
+                  </Field>
+                  {flags.expiry && (
+                    <Field label="Warn about expiry this many days ahead">
+                      <Input name="expiry" type="number" min="1" max="365" defaultValue={get("expiry.warning_days", "30")} />
+                    </Field>
+                  )}
                 </>
               ) : (
                 <>
-                  {(section === "Security"
-                    ? [
-                        "Require password for financial actions",
-                        "Lock application after inactivity",
-                        "Record all sensitive actions in audit log",
-                      ]
-                    : section === "Backup settings"
-                      ? [
-                          "Enable automatic daily backup",
-                          "Create a backup before restoring",
-                          "Keep the last 30 backups",
-                        ]
-                      : section === "Return rules"
-                        ? [
-                            "Require original invoice for returns",
-                            "Require owner approval",
-                            "Allow refunds to the original payment account",
-                          ]
-                        : [
-                            "Allow credit transactions",
-                            "Show balance before saving",
-                            "Print after saving",
-                          ]
-                  ).map((s, i) => (
-                    <div className="setting-toggle" key={s}>
-                      <div>
-                        <strong>{s}</strong>
-                        <span>
-                          {i === 0
-                            ? "Recommended for your business"
-                            : "Applies to all users on this device"}
-                        </span>
-                      </div>
-                      <Input
-                        type="checkbox"
-                        name={`${section}-${i}`}
-                        defaultChecked={
-                          settings[`${section}-${i}`] === undefined
-                            ? i < 2
-                            : settings[`${section}-${i}`] === "on"
-                        }
-                      />
-                    </div>
-                  ))}
-                  <Field
-                    label={
-                      section === "Security"
-                        ? "Auto-lock after (minutes)"
-                        : "Default payment terms (days)"
-                    }
-                  >
-                    <Input
-                      name={`${section}-period`}
-                      type="number"
-                      min="1"
-                      defaultValue={
-                        settings[`${section}-period`] ||
-                        (section === "Security" ? "15" : "30")
-                      }
-                    />
+                  <p className="muted">Change the password you use to sign in.</p>
+                  <Field label="Current password" required>
+                    <Input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
                   </Field>
+                  <Field label="New password" required hint="At least 6 characters.">
+                    <Input type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+                  </Field>
+                  <Field label="Repeat new password" required>
+                    <Input type="password" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={async () => {
+                      if (pw.next !== pw.again) return notify("The two new passwords do not match.")
+                      try {
+                        await api("auth:changePassword", { current: pw.current, next: pw.next })
+                        setPw({ current: "", next: "", again: "" })
+                        notify("Password changed.")
+                      } catch (e) {
+                        notify((e as Error).message)
+                      }
+                    }}
+                  >
+                    Change password
+                  </Button>
                 </>
               )}
             </div>
-            <div className="modal-footer">
-              <Button type="reset">Reset changes</Button>
-              <Button type="submit" variant="primary">
-                <Save size={16} />
-                Save settings
-              </Button>
-            </div>
+            </fieldset>
+            {!IMMEDIATE.includes(section) && section !== "Security" && (
+              <div className="modal-footer">
+                <Button type="reset">Reset changes</Button>
+                <Button type="submit" variant="primary" disabled={!canManage}>
+                  <Save size={16} />
+                  Save settings
+                </Button>
+              </div>
+            )}
           </form>
         </Panel>
       </div>
@@ -878,124 +731,243 @@ export function Settings({ notify }: { notify: (message: string) => void }) {
   )
 }
 
-export function Backup({
-  lastBackup,
-  onBackup,
-  onRestore,
-}: {
-  lastBackup: string
-  onBackup: () => void
-  onRestore: (file: File) => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  const [automatic, setAutomatic] = useState(true)
+function AccountsEditor({ accounts, run, notify }: { accounts: Masters["accounts"]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notify: (m: string) => void }) {
+  const [name, setName] = useState("")
+  const [type, setType] = useState<"cash" | "bank">("bank")
+  const [opening, setOpening] = useState("")
   return (
     <>
-      <PageHeading
-        title="Backup & restore"
-        description="Keep a safe copy of your business records."
-      />
+      <div className="list-editor-add">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Account name, e.g. Meezan Bank" />
+        <Select value={type} onChange={(e) => setType(e.target.value as "cash" | "bank")}>
+          <option value="bank">Bank</option>
+          <option value="cash">Cash</option>
+        </Select>
+        <Input type="number" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="Opening balance" />
+        <Button
+          type="button"
+          onClick={() =>
+            name.trim() &&
+            run(() => api("account:add", { name: name.trim(), type, opening: opening ? Number(opening) : undefined })).then((r) => {
+              if (r !== undefined) {
+                setName("")
+                setOpening("")
+                notify("Account added.")
+              }
+            })
+          }
+        >
+          <Plus size={15} />
+          Add
+        </Button>
+      </div>
+      {accounts.map((a) => (
+        <div className="setting-toggle" key={a.id}>
+          <div>
+            <strong>
+              {a.name} {!a.active && <Badge>Inactive</Badge>}
+            </strong>
+            <span>
+              {a.type === "bank" ? "Bank" : "Cash"} · balance {money(a.balance)}
+            </span>
+          </div>
+          <Button type="button" variant="ghost" onClick={() => run(() => api("account:setActive", { id: a.id, active: !a.active })).then((r) => r !== undefined && notify(a.active ? "Account deactivated." : "Account activated."))}>
+            {a.active ? "Deactivate" : "Activate"}
+          </Button>
+        </div>
+      ))}
+    </>
+  )
+}
+
+const SEQUENCE_LABEL: Record<string, string> = { sale: "Sales invoice", purchase: "Purchase invoice", receipt: "Payment receipt", payment: "Supplier payment", sale_return: "Sale return", purchase_return: "Purchase return", expense: "Expense", transfer: "Transfer" }
+function SequenceEditor({ sequences, run, notify }: { sequences: Masters["sequences"]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notify: (m: string) => void }) {
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  return (
+    <>
+      <div className="info-notice">
+        <FileText size={17} />
+        The prefix appears at the start of each number. Numbers continue without gaps and are never reused.
+      </div>
+      {sequences.map((s) => (
+        <div className="setting-toggle" key={s.kind}>
+          <div>
+            <strong>{SEQUENCE_LABEL[s.kind] ?? s.kind}</strong>
+            <span>Next number: {s.prefix}{String(s.next).padStart(5, "0")}</span>
+          </div>
+          <div className="input-prefix">
+            <Input aria-label={`Prefix for ${SEQUENCE_LABEL[s.kind] ?? s.kind}`} maxLength={10} value={draft[s.kind] ?? s.prefix} onChange={(e) => setDraft({ ...draft, [s.kind]: e.target.value })} />
+            <Button type="button" disabled={(draft[s.kind] ?? s.prefix) === s.prefix} onClick={() => run(() => api("sequence:set", { kind: s.kind, prefix: draft[s.kind]! })).then((r) => r !== undefined && notify("Prefix saved."))}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+export function Backup({
+  notify,
+  canRestore,
+  secondaryDir,
+  onChanged,
+}: {
+  notify: (message: string) => void
+  canRestore: boolean
+  secondaryDir: string
+  onChanged: () => void
+}) {
+  const [list, setList] = useState<BackupInfo[]>([])
+  const [health, setHealth] = useState<{ integrityOk: boolean; lastBackupAt: string | null; problems: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [restoring, setRestoring] = useState<string | null>(null)
+  const load = async () => {
+    try {
+      setList(await api("backup:list"))
+      setHealth(await api("health:get"))
+    } catch (e) {
+      notify((e as Error).message)
+    }
+  }
+  useEffect(() => {
+    void load()
+  }, [])
+  const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not created yet")
+  const size = (b: number) => (b > 1_000_000 ? `${(b / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1000))} KB`)
+  return (
+    <>
+      <PageHeading title="Backup & restore" description="Keep a safe copy of your business records." />
       <div className="backup-banner">
         <span className="backup-shield">
           <ShieldCheck size={28} />
         </span>
         <div>
           <Heading level={2}>Your business data, safely in your hands</Heading>
-          <p>
-            Your workspace is stored on this device. Download a backup regularly
-            and keep a second copy on an external drive.
-          </p>
+          <p>A backup is made automatically every day and every time you close the program. Keep a second copy on a USB drive.</p>
         </div>
-        <Badge tone="green">Local data available</Badge>
+        <Badge tone={health?.integrityOk === false ? "red" : "green"}>{health?.integrityOk === false ? "Data check failed" : "Data check passed"}</Badge>
       </div>
       <div className="summary-grid three">
-        <Summary
-          label="Last downloaded backup"
-          value={lastBackup || "Not created yet"}
-        />
-        <Summary label="Backup format" value="JSON · Local workspace" />
-        <Summary label="Storage" value="This browser / device" />
+        <Summary label="Last backup" value={when(health?.lastBackupAt ?? null)} />
+        <Summary label="Backups kept" value={`${list.length}`} />
+        <Summary label="Second copy" value={secondaryDir || "Not set"} />
       </div>
       <div className="backup-grid">
-        <Panel
-          title="Create a backup"
-          subtitle="Export a copy of all workspace records"
-        >
+        <Panel title="Create a backup" subtitle="A complete copy of all your records">
           <div className="backup-content">
             <div className="backup-big-icon">
               <Database size={31} />
             </div>
-            <Heading level={3}>Back up your business</Heading>
-            <p>
-              Includes sales, purchases, parties, stock, collections, expenses
-              and movement history.
-            </p>
+            <Heading level={3}>Back up now</Heading>
+            <p>Saved on this computer and checked for damage. If a second-copy folder is set, it is copied there as well.</p>
             <div className="backup-location">
               <FolderOpen size={19} />
               <div>
-                <strong>Device downloads folder</strong>
-                <span>
-                  Choose a destination in your browser’s download dialog
-                </span>
+                <strong>{secondaryDir || "No second-copy folder chosen"}</strong>
+                <span>Choose a USB drive or another disk for the extra copy</span>
               </div>
             </div>
-            <Button variant="primary" onClick={onBackup}>
-              <Download size={16} />
-              Backup now
-            </Button>
+            <div className="logo-actions">
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    const r = await api("backup:run")
+                    notify(`Backup created: ${r.name}`)
+                    await load()
+                  } catch (e) {
+                    notify((e as Error).message)
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                <Download size={16} />
+                Backup now
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    const r = await api("backup:chooseFolder")
+                    if (r.folder) {
+                      notify("Second-copy folder saved.")
+                      onChanged()
+                    }
+                  } catch (e) {
+                    notify((e as Error).message)
+                  }
+                }}
+              >
+                <FolderOpen size={16} />
+                Choose second-copy folder
+              </Button>
+            </div>
           </div>
         </Panel>
-        <Panel
-          title="Restore a backup"
-          subtitle="Recover records from an existing backup file"
-        >
+        <Panel title="Restore a backup" subtitle="Go back to an earlier copy">
           <div className="backup-content">
             <div className="backup-big-icon">
               <RotateCcw size={31} />
             </div>
-            <Heading level={3}>Restore your workspace</Heading>
-            <p>
-              Select a workspace backup. You’ll review a confirmation before
-              current records are replaced.
-            </p>
+            <Heading level={3}>Restore your records</Heading>
+            <p>Pick a backup from the list below. Your current records are saved as another backup first, and the program restarts.</p>
             <div className="info-notice">
-              <ShieldCheck size={17} />A safety copy of your current records
-              will be downloaded before restoring.
+              <ShieldCheck size={17} />
+              Everything entered after the chosen backup will no longer be visible.
             </div>
-            <Input
-              type="file"
-              accept=".json,application/json"
-              ref={ref}
-              hidden
-              onChange={(e) => {
-                if (e.target.files?.[0]) onRestore(e.target.files[0])
-                e.target.value = ""
-              }}
-            />
-            <Button onClick={() => ref.current?.click()}>
-              <Upload size={16} />
-              Choose backup to restore
-            </Button>
           </div>
         </Panel>
       </div>
+      <Panel title="Available backups">
+        <DataTable
+          rows={list}
+          empty="No backups yet. One is created automatically when you close the program."
+          columns={[
+            { key: "name", label: "Backup", render: (b) => <span className="reference">{b.name}</span> },
+            { key: "modified", label: "Created", render: (b) => when(b.modified) },
+            { key: "size", label: "Size", right: true, render: (b) => size(b.size) },
+            {
+              key: "action",
+              label: "",
+              render: (b) =>
+                restoring === b.name ? (
+                  <div className="row-actions">
+                    <Button
+                      variant="primary"
+                      onClick={async () => {
+                        try {
+                          await api("backup:restore", { name: b.name })
+                        } catch (e) {
+                          notify((e as Error).message)
+                          setRestoring(null)
+                        }
+                      }}
+                    >
+                      Yes, restore and restart
+                    </Button>
+                    <Button onClick={() => setRestoring(null)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <Button disabled={!canRestore} onClick={() => setRestoring(b.name)}>
+                    <Upload size={14} />
+                    Restore
+                  </Button>
+                ),
+            },
+          ]}
+        />
+      </Panel>
       <Panel title="Backup recommendations">
         <div className="backup-recommendations">
-          {[
-            "Download a backup at the end of every business day.",
-            "Keep a second copy on a USB drive or a different device.",
-            "Check the backup date before restoring.",
-          ].map((t) => (
+          {["Choose a USB drive as the second-copy folder and keep it away from the computer.", "Use a UPS so a power cut never interrupts work.", "Check the backup date before restoring."].map((t) => (
             <div key={t}>
               <CheckCircle2 size={17} />
               <span>{t}</span>
             </div>
           ))}
-        </div>
-        <div className="panel-note">
-          <Clock3 size={14} />
-          Scheduled background backups require a native desktop service and are
-          not enabled in this web prototype.
         </div>
       </Panel>
     </>
@@ -1005,15 +977,19 @@ export function Backup({
 export function Returns({
   sales,
   purchases,
+  returns,
+  products,
+  accounts,
   onReturn,
+  onExchange,
 }: {
   sales: Transaction[]
   purchases: Transaction[]
-  onReturn: (
-    transaction: Transaction,
-    quantities: Record<string, number>,
-    type: string,
-  ) => void
+  returns: ReturnRow[]
+  products: Product[]
+  accounts: string[]
+  onReturn: (t: Transaction, quantities: Record<string, number>, type: string, opts: { settlement: "balance" | "cash"; account?: string; refund?: number; damaged?: boolean; reason?: string }) => Promise<boolean>
+  onExchange: (t: Transaction, quantities: Record<string, number>, lines: { productId: string; qty: number; rate: number; discount: number }[], paid: number, account: string) => Promise<boolean>
 }) {
   const [tab, setTab] = useState("Sales return")
   const [query, setQuery] = useState("")
@@ -1021,49 +997,55 @@ export function Returns({
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [confirm, setConfirm] = useState(false)
   const [error, setError] = useState("")
-  const transactions = tab === "Sales return" ? sales : purchases
-  const total =
-    selected?.lines?.reduce(
-      (sum, line) =>
-        sum +
-        (quantities[line.productId] || 0) *
-          (line.rate - line.discount / line.qty),
-      0,
-    ) || 0
-  function proceed() {
-    if (!selected || total <= 0)
-      return setError("Select at least one item to return.")
-    if (
-      selected.lines?.some(
-        (line) =>
-          !Number.isInteger(quantities[line.productId] || 0) ||
-          (quantities[line.productId] || 0) > line.qty ||
-          (quantities[line.productId] || 0) < 0,
-      )
-    )
-      return setError(
-        "Return quantities must be whole numbers within the original quantity.",
-      )
-    if (!confirm) return setConfirm(true)
-    onReturn(selected, quantities, tab)
+  const [reason, setReason] = useState("Quality issue")
+  const [settlement, setSettlement] = useState<"balance" | "cash">("balance")
+  const [account, setAccount] = useState(accounts[0] ?? "")
+  const [damaged, setDamaged] = useState(false)
+  const [newLines, setNewLines] = useState<{ productId: string; qty: number }[]>([])
+  const [paid, setPaid] = useState("")
+  const [busy, setBusy] = useState(false)
+  const exchange = tab === "Exchange"
+  const purchase = tab === "Purchase return"
+  const transactions = (purchase ? purchases : sales).filter((t) => t.status !== "void")
+  const reasons = purchase ? ["Quality issue", "Wrong item sent", "Excess quantity", "Other"] : ["Quality issue", "Incorrect item", "Customer changed mind", "Other"]
+  const returnTotal = selected?.lines?.reduce((sum, l) => sum + (quantities[l.productId] || 0) * (l.rate - l.discount / l.qty), 0) || 0
+  const priced = newLines.map((l) => ({ ...l, product: products.find((p) => p.id === l.productId) })).filter((l) => l.product)
+  const newTotal = priced.reduce((s, l) => s + l.qty * l.product!.price, 0)
+  const difference = newTotal - returnTotal
+  const reset = () => {
     setSelected(null)
     setQuantities({})
     setConfirm(false)
     setError("")
+    setNewLines([])
+    setPaid("")
+    setSettlement("balance")
+    setDamaged(false)
+  }
+  async function proceed() {
+    if (!selected || returnTotal <= 0) return setError("Select at least one item to return.")
+    if (selected.lines?.some((l) => !Number.isInteger(quantities[l.productId] || 0) || (quantities[l.productId] || 0) > l.qty || (quantities[l.productId] || 0) < 0))
+      return setError("Return quantities must be whole numbers within the original quantity.")
+    if (exchange && !newLines.length) return setError("Choose the items the customer is taking instead.")
+    if (!confirm) return setConfirm(true)
+    setBusy(true)
+    const qs = Object.fromEntries(Object.entries(quantities).filter(([, q]) => q > 0))
+    const ok = exchange
+      ? await onExchange(selected, qs, priced.map((l) => ({ productId: l.productId, qty: l.qty, rate: l.product!.price, discount: 0 })), Math.max(0, Number(paid || 0)), account)
+      : await onReturn(selected, qs, tab, { settlement: purchase ? "balance" : settlement, account: settlement === "cash" || (purchase && Number(paid) > 0) ? account : undefined, refund: settlement === "cash" || purchase ? (Number(paid) > 0 ? Number(paid) : settlement === "cash" ? returnTotal : undefined) : undefined, damaged, reason })
+    setBusy(false)
+    if (ok) reset()
+    else setConfirm(false)
   }
   return (
     <>
-      <PageHeading
-        title="Returns"
-        description="Return against an original invoice, with a clear stock and balance adjustment."
-      />
+      <PageHeading title="Returns & exchange" description="Return against an original invoice, with a clear stock and balance adjustment." />
       <Tabs
-        tabs={["Sales return", "Purchase return"]}
+        tabs={["Sales return", "Exchange", "Purchase return"]}
         active={tab}
         onChange={(t) => {
           setTab(t)
-          setSelected(null)
-          setConfirm(false)
+          reset()
         }}
       />
       <div className="returns-steps">
@@ -1079,23 +1061,13 @@ export function Returns({
           <i>3</i>Review & confirm
         </span>
       </div>
-      <Panel
-        title="Find original transaction"
-        subtitle="Search an invoice number, party or supplier"
-      >
+      <Panel title="Find original transaction" subtitle="Search an invoice number, party or supplier">
         <div className="padded-search">
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="Search invoice or party…"
-          />
+          <SearchBox value={query} onChange={setQuery} placeholder="Search invoice or party…" />
         </div>
         <DataTable
-          rows={transactions
-            .filter((s) =>
-              `${s.id} ${s.party}`.toLowerCase().includes(query.toLowerCase()),
-            )
-            .slice(0, 6)}
+          rows={transactions.filter((s) => `${s.id} ${s.party}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8)}
+          empty="No invoices found."
           onRow={(s) => {
             setSelected(s)
             setQuantities({})
@@ -1103,35 +1075,17 @@ export function Returns({
             setError("")
           }}
           columns={[
-            {
-              key: "id",
-              label: "Invoice",
-              render: (s) => <span className="reference">{s.id}</span>,
-            },
-            {
-              key: "party",
-              label: tab === "Sales return" ? "Party" : "Supplier",
-            },
+            { key: "id", label: "Invoice", render: (s) => <span className="reference">{s.id}</span> },
+            { key: "party", label: purchase ? "Supplier" : "Party" },
             { key: "date", label: "Date" },
-            { key: "items", label: "Thans", right: true },
-            {
-              key: "total",
-              label: "Amount",
-              right: true,
-              render: (s) => money(s.total),
-            },
+            { key: "items", label: L.units, right: true },
+            { key: "total", label: "Amount", right: true, render: (s) => money(s.total) },
             {
               key: "action",
               label: "",
               render: (s) => (
-                <Button
-                  variant={selected?.id === s.id ? "primary" : "secondary"}
-                >
-                  {selected?.id === s.id ? (
-                    <Check size={14} />
-                  ) : (
-                    <Plus size={14} />
-                  )}
+                <Button variant={selected?.id === s.id ? "primary" : "secondary"}>
+                  {selected?.id === s.id ? <Check size={14} /> : <Plus size={14} />}
                   {selected?.id === s.id ? "Selected" : "Select"}
                 </Button>
               ),
@@ -1140,23 +1094,15 @@ export function Returns({
         />
       </Panel>
       {selected && (
-        <Panel
-          title={`Return items · ${selected.id}`}
-          subtitle={selected.party}
-        >
+        <Panel title={`Return items · ${selected.id}`} subtitle={selected.party}>
           <DataTable
             rows={selected.lines || []}
             empty="This invoice does not contain item-level records"
             columns={[
               { key: "name", label: "Product" },
-              { key: "color", label: "Variant" },
+              { key: "size", label: L.size, render: (l) => l.size || "—" },
               { key: "qty", label: "Original qty", right: true },
-              {
-                key: "rate",
-                label: "Rate",
-                right: true,
-                render: (l) => money(l.rate),
-              },
+              { key: "rate", label: "Rate", right: true, render: (l) => money(l.rate) },
               {
                 key: "return",
                 label: "Return qty",
@@ -1169,10 +1115,7 @@ export function Returns({
                     max={l.qty}
                     value={quantities[l.productId] || 0}
                     onChange={(e) => {
-                      setQuantities({
-                        ...quantities,
-                        [l.productId]: +e.target.value,
-                      })
+                      setQuantities({ ...quantities, [l.productId]: +e.target.value })
                       setConfirm(false)
                     }}
                   />
@@ -1180,62 +1123,161 @@ export function Returns({
               },
             ]}
           />
+          {exchange && (
+            <div className="modal-body">
+              <Field label="Items the customer takes instead">
+                <Select
+                  value=""
+                  onChange={(e) => {
+                    if (!e.target.value) return
+                    setNewLines((n) => (n.some((x) => x.productId === e.target.value) ? n : [...n, { productId: e.target.value, qty: 1 }]))
+                    setConfirm(false)
+                  }}
+                >
+                  <option value="">Add an item…</option>
+                  {products.filter((p) => p.active && p.stock > 0).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {[p.name, p.size].filter(Boolean).join(" · ")} — {money(p.price)} ({p.stock} in stock)
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {priced.map((l) => (
+                <div className="summary-row" key={l.productId}>
+                  <span>{l.product!.name}</span>
+                  <div className="input-prefix">
+                    <Input type="number" min="1" step="1" max={l.product!.stock} value={l.qty} aria-label={`Quantity of ${l.product!.name}`} onChange={(e) => setNewLines(newLines.map((x) => (x.productId === l.productId ? { ...x, qty: +e.target.value } : x)))} />
+                    <Button type="button" onClick={() => setNewLines(newLines.filter((x) => x.productId !== l.productId))}>
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="return-review">
             <div>
-              <span>Return amount</span>
-              <strong>{money(total)}</strong>
+              <span>Return value</span>
+              <strong>{money(returnTotal)}</strong>
             </div>
-            <div>
-              <span>Stock impact</span>
-              <strong>
-                {tab === "Sales return" ? "+" : "−"}
-                {Object.values(quantities).reduce((s, q) => s + q, 0)} Thans
-              </strong>
-            </div>
+            {exchange ? (
+              <div>
+                <span>{difference >= 0 ? "Customer pays the difference" : "Credit left for the customer"}</span>
+                <strong>{money(Math.abs(difference))}</strong>
+              </div>
+            ) : (
+              <div>
+                <span>Stock impact</span>
+                <strong>
+                  {purchase ? "−" : "+"}
+                  {Object.values(quantities).reduce((s, q) => s + q, 0)} {L.units}
+                </strong>
+              </div>
+            )}
             <div>
               <span>Balance adjustment</span>
-              <strong>
-                {tab === "Sales return" ? "Customer credit" : "Supplier debit"}
-              </strong>
+              <strong>{purchase ? "Supplier debit" : "Customer credit"}</strong>
             </div>
           </div>
           <div className="modal-body">
-            <Field label="Reason for return">
-              <Select>
-                <option>Fabric quality issue</option>
-                <option>Incorrect item</option>
-                <option>Excess quantity</option>
-                <option>Other</option>
-              </Select>
-            </Field>
+            {!exchange && (
+              <Field label="Reason for return">
+                <Select value={reason} onChange={(e) => setReason(e.target.value)}>
+                  {reasons.map((r) => (
+                    <option key={r}>{r}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            {tab === "Sales return" && (
+              <>
+                <Field label="How is the customer compensated?">
+                  <Select value={settlement} onChange={(e) => setSettlement(e.target.value as "balance" | "cash")}>
+                    <option value="balance">Reduce what the party owes (no cash)</option>
+                    <option value="cash">Pay cash back now</option>
+                  </Select>
+                </Field>
+                {settlement === "cash" && (
+                  <div className="form-grid">
+                    <Field label="Refund amount (Rs.)" hint="Leave empty to refund the full return value.">
+                      <Input type="number" min="0" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder={String(Math.round(returnTotal))} />
+                    </Field>
+                    <Field label="Paid from account">
+                      <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+                        {accounts.map((a) => (
+                          <option key={a}>{a}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                )}
+                <label className="check-row">
+                  <Input type="checkbox" checked={damaged} onChange={(e) => setDamaged(e.target.checked)} />
+                  <span>The returned goods are damaged (written off, not put back on the shelf)</span>
+                </label>
+              </>
+            )}
+            {purchase && (
+              <div className="form-grid">
+                <Field label="Cash received back from supplier (Rs.)" hint="Optional.">
+                  <Input type="number" min="0" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Paid into account">
+                  <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+                    {accounts.map((a) => (
+                      <option key={a}>{a}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {exchange && difference > 0 && (
+              <div className="form-grid">
+                <Field label="Paid now (Rs.)" hint="The rest stays on the party's account.">
+                  <Input type="number" min="0" max={difference} value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Into account">
+                  <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+                    {accounts.map((a) => (
+                      <option key={a}>{a}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
             {confirm && (
               <div className="confirm-notice">
                 <strong>Confirm this {tab.toLowerCase()}?</strong>
                 <p>
-                  Stock and the party ledger will be adjusted by {money(total)}.
-                  Returns are recorded as a separate transaction; the original
-                  invoice is preserved.
+                  Stock and the account will be adjusted by {money(returnTotal)}. The original invoice stays as it is; the return is recorded as a separate entry.
                 </p>
               </div>
             )}
             {error && <div className="form-error">{error}</div>}
           </div>
           <div className="modal-footer">
-            <Button
-              onClick={() => {
-                setSelected(null)
-                setConfirm(false)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={proceed}>
+            <Button onClick={reset}>Cancel</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void proceed()}>
               <RotateCcw size={15} />
-              {confirm ? "Confirm return" : "Review return"}
+              {confirm ? "Confirm" : "Review"}
             </Button>
           </div>
         </Panel>
       )}
+      <Panel title="Recent returns">
+        <DataTable
+          rows={returns.slice(0, 20)}
+          empty="No returns recorded yet."
+          columns={[
+            { key: "id", label: "Return", render: (r) => <span className="reference">{r.id}</span> },
+            { key: "type", label: "Type" },
+            { key: "original", label: "Against" },
+            { key: "party", label: "Party" },
+            { key: "date", label: "Date" },
+            { key: "total", label: "Value", right: true, render: (r) => money(r.total) },
+          ]}
+        />
+      </Panel>
     </>
   )
 }

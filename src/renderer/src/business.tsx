@@ -3,18 +3,6 @@ import type { Business } from "@shared/ipc"
 
 export type { Business }
 
-/** Shown only in a plain browser preview (no desktop app behind it). */
-const PREVIEW: Business = {
-  name: "Raza Textiles",
-  tagline: "Wholesale cloth merchants",
-  owner: "Ahmed Ali",
-  phone: "0300 1234567",
-  email: "razatextiles@email.com",
-  address: "Shop 24, Azam Cloth Market, Lahore",
-  city: "Lahore",
-  logo: "",
-  invoiceFooter: "",
-}
 const EMPTY: Business = { name: "", tagline: "", owner: "", phone: "", email: "", address: "", city: "", logo: "", invoiceFooter: "" }
 
 type BusinessValue = {
@@ -25,7 +13,7 @@ type BusinessValue = {
 const BusinessContext = createContext<BusinessValue | null>(null)
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
-  const [business, setBusiness] = useState<Business>(window.api ? EMPTY : PREVIEW)
+  const [business, setBusiness] = useState<Business>(EMPTY)
 
   useEffect(() => {
     let alive = true

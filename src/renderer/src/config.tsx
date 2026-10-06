@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { profiles, type FlagKey, type Flags, type ProfileId } from "@shared/profiles"
+import { applyLabels } from "./data"
+import { api } from "./backend"
 
 export { profiles }
 export type { FlagKey, Flags, ProfileId }
@@ -16,18 +18,6 @@ export const featureMeta: { key: FlagKey; title: string; description: string; wi
 ]
 
 type Saved = { profile: ProfileId; flags: Flags }
-const KEY = "raza-config"
-
-/** Browser-only fallback (plain `vite` preview). In the desktop app the database is the source of truth. */
-function loadLocal(): Saved {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || "null")
-    if (raw && raw.profile in profiles) return { profile: raw.profile, flags: { ...profiles[raw.profile as ProfileId].flags, ...raw.flags } }
-  } catch {
-    /* default below */
-  }
-  return { profile: "cloth", flags: { ...profiles.cloth.flags } }
-}
 
 type ConfigValue = {
   profile: ProfileId
@@ -41,46 +31,28 @@ type ConfigValue = {
 const ConfigContext = createContext<ConfigValue | null>(null)
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<Saved>(loadLocal)
+  const [state, setState] = useState<Saved>({ profile: "cloth", flags: { ...profiles.cloth.flags } })
+  applyLabels(state.flags.than)
 
   useEffect(() => {
     let alive = true
-    void window.api?.invoke("config:get").then((r) => {
-      if (alive && r.ok) setState(r.data)
-    })
+    void api("config:get")
+      .then((cfg) => alive && setState(cfg))
+      .catch(() => null)
     return () => {
       alive = false
     }
   }, [])
 
-  const applyLocal = (next: Saved) => {
-    setState(next)
+  const setProfile = useCallback(async () => "The business type is set by your license and cannot be changed here.", [])
+  const setFlag = useCallback(async (flag: FlagKey, value: boolean) => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(next))
-    } catch {
-      /* in-memory only */
-    }
-  }
-
-  const setProfile = useCallback(async (profile: ProfileId) => {
-    if (window.api) return "The business type is set by your license and cannot be changed here."
-    applyLocal({ profile, flags: { ...profiles[profile].flags } })
-    return null
-  }, [])
-
-  const setFlag = useCallback(
-    async (flag: FlagKey, value: boolean) => {
-      if (window.api) {
-        const r = await window.api.invoke("config:setFlag", { flag, enabled: value })
-        if (!r.ok) return r.error.message
-        setState(r.data)
-        return null
-      }
-      applyLocal({ ...state, flags: { ...state.flags, [flag]: value } })
+      setState(await api("config:setFlag", { flag, enabled: value }))
       return null
-    },
-    [state],
-  )
+    } catch (e) {
+      return (e as Error).message
+    }
+  }, [])
 
   const value = useMemo<ConfigValue>(() => ({ ...state, isEnabled: (f) => state.flags[f], setProfile, setFlag }), [state, setProfile, setFlag])
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>

@@ -73,220 +73,32 @@ import {
   Toast,
   downloadFile,
 } from "./ui"
-import {
-  initialCollections,
-  initialExpenses,
-  initialParties,
-  initialProducts,
-  initialPurchases,
-  initialSales,
-  money,
-  suppliers as initialSuppliers,
-  today,
-  type Collection,
-  type Expense,
-  type Party,
-  type Product,
-  type Transaction,
-} from "./data"
+import { money, today, setToday, L, type Collection, type Party, type Product, type Transaction } from "./data"
+import type { Snapshot, AppUser as User } from "@shared/models"
+import { api } from "./backend"
+import { useSession } from "./Auth"
 
-type Movement = {
-  id: string
-  date: string
-  type: string
-  quantity: number
-  productId: string
-  reason: string
-}
-type AccountEntry = {
-  id: string
-  date: string
-  account: string
-  description: string
-  incoming: number
-  outgoing: number
-  type: string
-}
-type User = {
-  id: string
-  name: string
-  username: string
-  role: string
-  status: string
-  activity: string
-}
-type Audit = {
-  id: string
-  date: string
-  action: string
-  detail: string
-  user: string
-}
-type Store = {
-  version: number
-  parties: Party[]
-  suppliers: Party[]
-  products: Product[]
-  sales: Transaction[]
-  purchases: Transaction[]
-  collections: Collection[]
-  expenses: Expense[]
-  movements: Movement[]
-  accounts: Record<string, number>
-  entries: AccountEntry[]
-  users: User[]
-  audits: Audit[]
-  returns: {
-    id: string
-    original: string
-    type: string
-    total: number
-    date: string
-  }[]
-  permissions: Record<string, boolean>
-}
-function seedTransactions(rows: Transaction[], ids: string[]) {
-  return rows.map((r, i) => {
-    const p = initialProducts.find((p) => p.id === ids[i])!
-    return {
-      ...r,
-      lines: [
-        {
-          productId: p.id,
-          name: p.name,
-          color: p.color,
-          size: p.size,
-          qty: r.items,
-          rate: r.total / r.items,
-          discount: 0,
-        },
-      ],
-    }
-  })
-}
-const initialStore: Store = {
-  version: 1,
-  parties: initialParties,
-  suppliers: initialSuppliers,
-  products: initialProducts,
-  sales: seedTransactions(initialSales, [
-    "GA-1042-NV",
-    "NS-2031-WH",
-    "NS-2031-WH",
-    "GA-1048-BK",
-    "AK-3018-BG",
-  ]),
-  purchases: seedTransactions(initialPurchases, [
-    "GA-1042-NV",
-    "NS-2031-WH",
-    "AK-3018-BG",
-  ]),
-  collections: initialCollections,
-  expenses: initialExpenses,
-  movements: initialProducts.map((p) => ({
-    id: "OPEN-" + p.article,
-    date: "2025-06-01",
-    type: "Opening stock",
-    quantity: p.stock,
-    productId: p.id,
-    reason: "Opening inventory",
-  })),
-  accounts: {
-    "Cash in hand": 248650,
-    "Meezan Bank": 625000,
-    "HBL Business": 185000,
-  },
-  entries: [
-    {
-      id: "RCV-0248",
-      date: today,
-      account: "Cash in hand",
-      description: "Al-Madina Fabrics · Collection",
-      incoming: 45000,
-      outgoing: 0,
-      type: "Recovery",
-    },
-    {
-      id: "RCV-0247",
-      date: today,
-      account: "Meezan Bank",
-      description: "Hassan Cloth House · Collection",
-      incoming: 30000,
-      outgoing: 0,
-      type: "Recovery",
-    },
-    {
-      id: "EXP-0184",
-      date: today,
-      account: "Cash in hand",
-      description: "Delivery to Lahore market",
-      incoming: 0,
-      outgoing: 3500,
-      type: "Expense",
-    },
-    {
-      id: "INV-1048",
-      date: today,
-      account: "Cash in hand",
-      description: "Al-Madina Fabrics · Sale",
-      incoming: 102000,
-      outgoing: 0,
-      type: "Sale",
-    },
-  ],
-  users: [
-    {
-      id: "USR-001",
-      name: "Ahmed Ali",
-      username: "ahmed.admin",
-      role: "Owner / Admin",
-      status: "Active",
-      activity: "Now",
-    },
-    {
-      id: "USR-002",
-      name: "Bilal Khan",
-      username: "bilal.sales",
-      role: "Sales User",
-      status: "Active",
-      activity: "10 minutes ago",
-    },
-    {
-      id: "USR-003",
-      name: "Usman Raza",
-      username: "usman.accounts",
-      role: "Accountant",
-      status: "Active",
-      activity: "1 hour ago",
-    },
-    {
-      id: "USR-004",
-      name: "Ali Hassan",
-      username: "ali.store",
-      role: "Store Manager",
-      status: "Active",
-      activity: "2 hours ago",
-    },
-    {
-      id: "USR-005",
-      name: "Waqas Ahmed",
-      username: "waqas.recovery",
-      role: "Recovery Staff",
-      status: "Inactive",
-      activity: "Yesterday",
-    },
-  ],
-  audits: [
-    {
-      id: "LOG-001",
-      date: today + " 09:00",
-      action: "Workspace opened",
-      detail: "Business day started",
-      user: "Ahmed Ali",
-    },
-  ],
+type Store = Snapshot
+const emptyStore: Store = {
+  today: today,
+  historyFrom: today.slice(0, 8) + "01",
+  walkInId: "",
+  parties: [],
+  suppliers: [],
+  products: [],
+  sales: [],
+  purchases: [],
+  collections: [],
+  expenses: [],
+  movements: [],
+  accounts: {},
+  entries: [],
+  users: [],
+  audits: [],
   returns: [],
-  permissions: {},
+  closings: [],
+  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, expiring: [], cities: [] },
+  masters: { accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
 }
 const navGroups: {
   label: string
@@ -326,66 +138,14 @@ const navGroups: {
     ],
   },
 ]
-const roles = [
-  "Owner / Admin",
-  "Sales User",
-  "Accountant",
-  "Store Manager",
-  "Recovery Staff",
-  "Viewer",
-]
-function isValidStore(value: unknown): value is Store {
-  if (!value || typeof value !== "object") return false
-  const s = value as Store
-  return (
-    s.version === 1 &&
-    [
-      "parties",
-      "suppliers",
-      "products",
-      "sales",
-      "purchases",
-      "collections",
-      "expenses",
-      "movements",
-      "entries",
-      "users",
-      "audits",
-      "returns",
-    ].every((k) =>
-      Array.isArray((s as unknown as Record<string, unknown>)[k]),
-    ) &&
-    !!s.accounts &&
-    typeof s.accounts === "object" &&
-    Object.values(s.accounts).every(
-      (v) => typeof v === "number" && Number.isFinite(v),
-    ) &&
-    s.products.every(
-      (p) =>
-        typeof p.id === "string" &&
-        typeof p.name === "string" &&
-        typeof p.stock === "number",
-    ) &&
-    s.parties.every(
-      (p) => typeof p.name === "string" && typeof p.balance === "number",
-    ) &&
-    !!s.permissions
-  )
-}
-
 const pageFlags: Record<string, FlagKey> = { Recovery: "recovery" }
 
 export default function App() {
   const { isEnabled } = useConfig()
   const { business } = useBusiness()
-  const [store, setStore] = useState<Store>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("raza-workspace") || "null")
-      return isValidStore(saved) ? saved : initialStore
-    } catch {
-      return initialStore
-    }
-  })
+  const session = useSession()
+  const [store, setStore] = useState<Store>(emptyStore)
+  const [ready, setReady] = useState(false)
   const [page, setPage] = useState("Dashboard")
   const [modal, setModal] = useState<{
     type: string
@@ -400,29 +160,11 @@ export default function App() {
   const [userTab, setUserTab] = useState("Users")
   const [role, setRole] = useState("Sales User")
   const [accountTab, setAccountTab] = useState("Overview")
-  const [lastBackup, setLastBackup] = useState(
-    () => localStorage.getItem("raza-last-backup") || "",
-  )
-  const [loggedIn, setLoggedIn] = useState(true)
-  const [pendingRestore, setPendingRestore] = useState<Store | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const notify = useCallback((message: string) => setToast(message), [])
   const closeToast = useCallback(() => setToast(""), [])
   const closeModal = useCallback(() => setModal(null), [])
   const open = (type: string, data?: unknown) => setModal({ type, data })
-  const audit = (action: string, detail: string): Audit => ({
-    id: "LOG-" + Date.now(),
-    date:
-      today +
-      " " +
-      new Date().toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    action,
-    detail,
-    user: "Ahmed Ali",
-  })
   const navigate = (next: string) => {
     if (pageFlags[next] && !isEnabled(pageFlags[next])) return
     if (next === "Sales Report") {
@@ -439,15 +181,6 @@ export default function App() {
     window.scrollTo(0, 0)
   }
   useEffect(() => {
-    try {
-      localStorage.setItem("raza-workspace", JSON.stringify(store))
-    } catch {
-      notify(
-        "Local storage is unavailable. Download a backup to protect your changes.",
-      )
-    }
-  }, [store, notify])
-  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F2") {
         e.preventDefault()
@@ -461,407 +194,153 @@ export default function App() {
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [])
-  function saveTransaction(
-    transaction: Transaction,
-    print: boolean,
-    purchase = false,
-  ) {
-    const account = transaction.account || "Cash in hand"
-    if (purchase && transaction.paid > store.accounts[account]) {
-      notify("Insufficient balance in the selected account.")
-      return false
+  const refresh = useCallback(async () => {
+    try {
+      const snap = await api("snapshot:get")
+      setToday(snap.today)
+      setStore(snap)
+    } catch (e) {
+      notify((e as Error).message)
+    } finally {
+      setReady(true)
     }
-    setStore((s) => ({
-      ...s,
-      [purchase ? "purchases" : "sales"]: [
-        transaction,
-        ...(purchase ? s.purchases : s.sales),
-      ],
-      [purchase ? "suppliers" : "parties"]: (purchase
-        ? s.suppliers
-        : s.parties
-      ).map((p) =>
-        p.name === transaction.party
-          ? {
-              ...p,
-              balance: p.balance + transaction.total - transaction.paid,
-              status:
-                transaction.total > transaction.paid ? "Outstanding" : p.status,
-            }
-          : p,
-      ),
-      products: s.products.map((p) => {
-        const line = transaction.lines?.find((l) => l.productId === p.id)
-        return line
-          ? {
-              ...p,
-              stock: p.stock + line.qty * (purchase ? 1 : -1),
-              cost: purchase
-                ? (p.cost * p.stock + line.rate * line.qty) /
-                  (p.stock + line.qty)
-                : p.cost,
-            }
-          : p
-      }),
-      accounts: {
-        ...s.accounts,
-        [account]: s.accounts[account] + transaction.paid * (purchase ? -1 : 1),
-      },
-      entries: transaction.paid
-        ? [
-            {
-              id: transaction.id,
-              date: transaction.date,
-              account,
-              description: transaction.party,
-              incoming: purchase ? 0 : transaction.paid,
-              outgoing: purchase ? transaction.paid : 0,
-              type: purchase ? "Purchase" : "Sale",
-            },
-            ...s.entries,
-          ]
-        : s.entries,
-      movements: [
-        ...(transaction.lines || []).map((l) => ({
-          id: transaction.id,
-          date: transaction.date,
-          type: purchase ? "Purchase" : "Sale",
-          quantity: l.qty * (purchase ? 1 : -1),
-          productId: l.productId,
-          reason: transaction.party,
-        })),
-        ...s.movements,
-      ],
-      audits: [
-        audit(
-          purchase ? "Purchase saved" : "Sale saved",
-          transaction.id + " · " + money(transaction.total),
-        ),
-        ...s.audits,
-      ],
-    }))
-    notify(
-      `${
-        purchase ? "Purchase" : "Sale"
-      } ${transaction.id} saved. Stock and balances updated.`,
+  }, [notify])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  /** Runs one engine command. A refusal is shown as a plain message; success reloads the screen data. */
+  async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    try {
+      const result = await fn()
+      await refresh()
+      // Commands with nothing to report resolve to null; success must still be distinguishable from failure (undefined).
+      return (result ?? true) as T
+    } catch (e) {
+      notify((e as Error).message)
+      return undefined
+    }
+  }
+  const cashAccount = store.masters.accounts.find((a) => a.active && a.type === "cash")?.name ?? store.masters.accounts.find((a) => a.active)?.name ?? ""
+  const methodFor = (account?: string) => (store.masters.accounts.find((a) => a.name === account)?.type === "bank" ? "Bank transfer" : "Cash")
+
+  async function saveTransaction(t: Transaction, print: boolean, purchase = false): Promise<boolean> {
+    const account = t.account || cashAccount
+    const payments = t.paid > 0 ? [{ account, method: methodFor(account), amount: t.paid }] : []
+    const lines = (t.lines ?? []).map((l) => ({ productId: l.productId, qty: l.qty, rate: l.rate, discount: l.discount, batchNo: l.batchNo, mfgDate: l.mfgDate, expiryDate: l.expiryDate }))
+    const res = await run(() =>
+      purchase
+        ? api("purchase:create", { supplierId: t.partyId!, supplierInvoice: t.supplierInvoice, lines, discount: t.invoiceDiscount, payments, date: t.date })
+        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments }),
     )
-    if (print) open("invoice", transaction)
+    if (!res) return false
+    const warning = (res as { warnings?: string[] }).warnings?.[0]
+    notify(warning ?? (purchase ? `Purchase ${res.id} saved.` : `Sale ${res.id} saved.`))
+    if (print) open("invoice", { ...t, id: res.id, user: session.user.name })
     return true
   }
-  function submitEntry(data: Record<string, string>) {
+
+  async function submitEntry(data: Record<string, string>) {
     const type = modal?.type
-    const id = Date.now().toString().slice(-6)
+    const n = (k: string) => Number(data[k])
+    const initial = modal?.data as { id?: string } | undefined
     if (type === "recovery" || type === "supplier-payment") {
       const supplier = type === "supplier-payment"
-      const party = (supplier ? store.suppliers : store.parties).find(
-        (p) => p.id === data.partyId,
-      )!
-      const amount = +data.amount
-      if (supplier && store.accounts[data.account] < amount)
-        return notify("Insufficient balance in this account.")
-      const collection: Collection = {
-        id: "RCV-" + id,
-        party: party.name,
-        amount,
-        method: data.method,
-        account: data.account,
-        date: data.date,
-        time: new Date().toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        user: "Ahmed Ali",
-        notes: data.notes,
-      }
-      setStore((s) => ({
-        ...s,
-        [supplier ? "suppliers" : "parties"]: (supplier
-          ? s.suppliers
-          : s.parties
-        ).map((p) =>
-          p.id === party.id
-            ? {
-                ...p,
-                balance: p.balance - amount,
-                status: p.balance - amount <= 0 ? "Clear" : "Outstanding",
-              }
-            : p,
-        ),
-        collections: supplier ? s.collections : [collection, ...s.collections],
-        accounts: {
-          ...s.accounts,
-          [data.account]:
-            s.accounts[data.account] + amount * (supplier ? -1 : 1),
-        },
-        entries: [
-          {
-            id: collection.id,
-            date: data.date,
-            account: data.account,
-            description: party.name,
-            incoming: supplier ? 0 : amount,
-            outgoing: supplier ? amount : 0,
-            type: supplier ? "Supplier payment" : "Recovery",
-          },
-          ...s.entries,
-        ],
-        audits: [
-          audit("Payment saved", party.name + " · " + money(amount)),
-          ...s.audits,
-        ],
-      }))
-      notify("Payment saved. Party balance updated.")
-      open("receipt", collection)
-    } else if (type === "expense") {
-      if (+data.amount > store.accounts[data.account])
-        return notify("Insufficient balance in this account.")
-      const expense: Expense = {
-        id: "EXP-" + id,
-        category: data.category,
-        amount: +data.amount,
-        account: data.account,
-        date: data.date,
-        notes: data.notes,
-        user: "Ahmed Ali",
-      }
-      setStore((s) => ({
-        ...s,
-        expenses: [expense, ...s.expenses],
-        accounts: {
-          ...s.accounts,
-          [data.account]: s.accounts[data.account] - expense.amount,
-        },
-        entries: [
-          {
-            id: expense.id,
-            date: data.date,
-            account: data.account,
-            description: data.notes || data.category,
-            incoming: 0,
-            outgoing: expense.amount,
-            type: "Expense",
-          },
-          ...s.entries,
-        ],
-        audits: [
-          audit("Expense saved", data.category + " · " + money(expense.amount)),
-          ...s.audits,
-        ],
-      }))
+      const party = (supplier ? store.suppliers : store.parties).find((p) => p.id === data.partyId)
+      const res = await run(() => api(supplier ? "supplierPayment:create" : "receipt:create", { partyId: data.partyId!, account: data.account!, method: data.method!, amount: n("amount"), date: data.date, notes: data.notes, receivedBy: session.user.name }))
+      if (!res) return
       closeModal()
-      notify("Expense saved and account balance updated.")
-    } else if (type === "adjust") {
-      const product = store.products.find((p) => p.id === data.productId)!
-      setStore((s) => ({
-        ...s,
-        products: s.products.map((p) =>
-          p.id === data.productId
-            ? { ...p, stock: p.stock + +data.quantity }
-            : p,
-        ),
-        movements: [
-          {
-            id: "ADJ-" + id,
-            date: data.date,
-            type: "Adjustment",
-            quantity: +data.quantity,
-            productId: data.productId,
-            reason: data.reason + (data.notes ? " · " + data.notes : ""),
-          },
-          ...s.movements,
-        ],
-        audits: [
-          audit(
-            "Stock adjusted",
-            product.name + " · " + data.quantity + " Thans",
-          ),
-          ...s.audits,
-        ],
-      }))
-      closeModal()
-      notify("Stock adjustment saved with an audit record.")
-    } else if (type === "party") {
-      const supplier = page === "Suppliers"
-      const party: Party = {
-        id: (supplier ? "SUP-" : "PTY-") + id,
-        name: data.name.trim(),
-        city: data.city,
-        phone: data.phone,
-        balance: 0,
-        limit: +data.limit,
-        status: "Clear",
-      }
-      setStore((s) => ({
-        ...s,
-        [supplier ? "suppliers" : "parties"]: [
-          ...(supplier ? s.suppliers : s.parties),
-          party,
-        ],
-        audits: [audit("Party added", party.name), ...s.audits],
-      }))
-      closeModal()
-      notify(`${supplier ? "Supplier" : "Party"} added.`)
-    } else if (type === "transfer") {
-      const amount = +data.amount
-      if (amount > store.accounts[data.from])
-        return notify("Insufficient balance in the source account.")
-      setStore((s) => ({
-        ...s,
-        accounts: {
-          ...s.accounts,
-          [data.from]: s.accounts[data.from] - amount,
-          [data.to]: s.accounts[data.to] + amount,
-        },
-        entries: [
-          {
-            id: "TRF-" + id,
-            date: data.date,
-            account: data.from,
-            description: "Transfer to " + data.to,
-            incoming: 0,
-            outgoing: amount,
-            type: "Transfer",
-          },
-          {
-            id: "TRF-" + id + "-IN",
-            date: data.date,
-            account: data.to,
-            description: "Transfer from " + data.from,
-            incoming: amount,
-            outgoing: 0,
-            type: "Transfer",
-          },
-          ...s.entries,
-        ],
-        audits: [
-          audit(
-            "Account transfer",
-            data.from + " → " + data.to + " · " + money(amount),
-          ),
-          ...s.audits,
-        ],
-      }))
-      closeModal()
-      notify("Transfer saved. Both account balances updated.")
-    } else if (type === "user") {
-      if (store.users.some((u) => u.username === data.username))
-        return notify("This username is already in use.")
-      setStore((s) => ({
-        ...s,
-        users: [
-          ...s.users,
-          {
-            id: "USR-" + id,
-            name: data.name,
-            username: data.username,
-            role: data.role,
-            status: "Active",
-            activity: "Not yet signed in",
-          },
-        ],
-        audits: [audit("User added", data.name), ...s.audits],
-      }))
-      closeModal()
-      notify("Demo user added. Native authentication is not connected.")
+      if (supplier) return notify("Supplier payment recorded.")
+      notify(`Payment ${res.id} received.`)
+      open("receipt", { id: res.id, party: party?.name ?? "", amount: n("amount"), method: data.method!, account: data.account!, date: data.date || today, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), user: session.user.name, notes: data.notes || "" } satisfies Collection)
+      return
     }
-  }
-  function createBackup() {
-    downloadFile(
-      "raza-textiles-backup-" + today + ".json",
-      JSON.stringify(store, null, 2),
-    )
-    const label = new Date().toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-    setLastBackup(label)
-    localStorage.setItem("raza-last-backup", label)
-    notify("Backup downloaded. Keep a copy on an external drive.")
-  }
-  async function restoreFile(file: File) {
-    try {
-      const data = JSON.parse(await file.text())
-      if (!isValidStore(data)) throw new Error("Invalid backup")
-      setPendingRestore(data)
-      open("restore", file.name)
-    } catch {
-      notify(
-        "This file is not a compatible workspace backup. No data was changed.",
+    if (type === "expense") {
+      if (await run(() => api("expense:create", { category: data.category!, amount: n("amount"), account: data.account!, date: data.date, notes: data.notes }))) {
+        closeModal()
+        notify("Expense saved.")
+      }
+      return
+    }
+    if (type === "transfer") {
+      if (await run(() => api("transfer:create", { from: data.from!, to: data.to!, amount: n("amount"), date: data.date, notes: data.notes }))) {
+        closeModal()
+        notify("Transfer recorded. It is not counted as income or expense.")
+      }
+      return
+    }
+    if (type === "adjust") {
+      if (await run(() => api("stock:adjust", { productId: data.productId!, quantity: n("quantity"), reason: data.reason!, notes: data.notes, damage: data.reason === "Damaged stock" && n("quantity") < 0 }))) {
+        closeModal()
+        notify("Stock adjustment saved.")
+      }
+      return
+    }
+    if (type === "physical-count") {
+      const lines = Object.entries(data).filter(([k, v]) => k.startsWith("count:") && v.trim() !== "").map(([k, v]) => ({ productId: k.slice(6), counted: Number(v) }))
+      if (lines.length === 0) return notify("Enter the counted quantity for at least one item.")
+      const res = await run(() => api("stock:count", { lines, note: data.notes }))
+      if (res) {
+        closeModal()
+        notify(res.adjusted ? `Stock count saved. ${res.adjusted} item(s) adjusted.` : "Stock count saved. Everything matched.")
+      }
+      return
+    }
+    if (type === "party") {
+      const kind = page === "Suppliers" ? "supplier" : "customer"
+      const res = await run(() =>
+        api("party:save", { kind, id: initial?.id, name: data.name!, city: data.city, phone: data.phone, whatsapp: data.whatsapp, area: data.area, address: data.address, notes: data.notes, limit: data.limit === undefined || data.limit === "" ? undefined : n("limit"), terms: data.terms === undefined || data.terms === "" ? null : n("terms"), active: data.active === undefined ? undefined : data.active === "Active", openingBalance: data.opening ? n("opening") : undefined }),
       )
+      if (res) {
+        closeModal()
+        notify(initial?.id ? "Details updated." : kind === "supplier" ? "Supplier added." : "Party added.")
+      }
+      return
+    }
+    if (type === "product") {
+      const res = await run(() =>
+        api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined }),
+      )
+      if (res) {
+        closeModal()
+        notify(initial?.id ? "Product updated." : "Product added.")
+      }
+      return
+    }
+    if (type === "account") {
+      if (await run(() => api("account:add", { name: data.name!, type: data.type === "Bank" ? "bank" : "cash", opening: data.opening ? n("opening") : undefined }))) {
+        closeModal()
+        notify("Account added.")
+      }
+      return
+    }
+    if (type === "user") {
+      if (await run(() => api("user:create", { name: data.name!, username: data.username!, password: data.password!, role: data.role! }))) {
+        closeModal()
+        notify("User added.")
+      }
     }
   }
-  function processReturn(
-    transaction: Transaction,
-    quantities: Record<string, number>,
-    type: string,
-  ) {
+
+  async function processReturn(t: Transaction, quantities: Record<string, number>, type: string, opts: { settlement: "balance" | "cash"; account?: string; refund?: number; damaged?: boolean; reason?: string }): Promise<boolean> {
     const purchase = type === "Purchase return"
-    if (store.returns.some((r) => r.original === transaction.id))
-      return notify(
-        "A return already exists for this invoice. Review the audit log before making another adjustment.",
-      )
-    if (
-      purchase &&
-      transaction.lines?.some(
-        (l) =>
-          (quantities[l.productId] || 0) >
-          (store.products.find((p) => p.id === l.productId)?.stock || 0),
-      )
+    const res = await run(() =>
+      purchase
+        ? api("return:purchase", { purchase: t.id, quantities, refund: opts.refund, account: opts.account, reason: opts.reason })
+        : api("return:sale", { invoice: t.id, quantities, settlement: opts.settlement, account: opts.account, refund: opts.refund, damaged: opts.damaged, reason: opts.reason }),
     )
-      return notify("The purchase return exceeds available stock.")
-    const total =
-      transaction.lines?.reduce(
-        (s, l) =>
-          s + (quantities[l.productId] || 0) * (l.rate - l.discount / l.qty),
-        0,
-      ) || 0
-    const id = "RET-" + Date.now().toString().slice(-6)
-    setStore((s) => ({
-      ...s,
-      products: s.products.map((p) => ({
-        ...p,
-        stock: p.stock + (quantities[p.id] || 0) * (purchase ? -1 : 1),
-      })),
-      [purchase ? "suppliers" : "parties"]: (purchase
-        ? s.suppliers
-        : s.parties
-      ).map((p) =>
-        p.name === transaction.party
-          ? {
-              ...p,
-              balance: p.balance - total,
-              status: p.balance - total <= 0 ? "Clear" : "Outstanding",
-            }
-          : p,
-      ),
-      returns: [
-        { id, original: transaction.id, type, total, date: today },
-        ...s.returns,
-      ],
-      movements: [
-        ...(transaction.lines || [])
-          .filter((l) => quantities[l.productId] > 0)
-          .map((l) => ({
-            id,
-            date: today,
-            type,
-            productId: l.productId,
-            quantity: quantities[l.productId] * (purchase ? -1 : 1),
-            reason: transaction.id,
-          })),
-        ...s.movements,
-      ],
-      audits: [
-        audit(type, id + " · " + transaction.id + " · " + money(total)),
-        ...s.audits,
-      ],
-    }))
-    notify(
-      `${type} saved. Stock and party balance adjusted; no cash refund issued.`,
-    )
+    if (!res) return false
+    notify(`${type} ${res.id} recorded for ${money(res.total)}.`)
+    return true
   }
+
+  async function processExchange(t: Transaction, quantities: Record<string, number>, lines: { productId: string; qty: number; rate: number; discount: number }[], paid: number, account: string): Promise<boolean> {
+    const res = await run(() => api("exchange:create", { invoice: t.id, quantities, partyId: t.partyId!, lines, payments: paid > 0 ? [{ account, method: methodFor(account), amount: paid }] : [] }))
+    if (!res) return false
+    notify(`Exchange done: return ${res.returnId}, new invoice ${res.invoice}.`)
+    return true
+  }
+
   const activePage =
     page === "New Purchase"
       ? "Purchases"
@@ -961,7 +440,7 @@ export default function App() {
                 label: purchase ? "Supplier" : "Customer / party",
               },
               { key: "date", label: "Date" },
-              { key: "items", label: "Thans", right: true },
+              { key: "items", label: L.units, right: true },
               {
                 key: "total",
                 label: "Total",
@@ -987,11 +466,13 @@ export default function App() {
                 label: "Status",
                 render: (r) => (
                   <Badge>
-                    {r.paid >= r.total
-                      ? "Paid"
-                      : r.paid > 0
-                        ? "Partial"
-                        : "Unpaid"}
+                    {r.status === "void"
+                      ? "Cancelled"
+                      : r.paid >= r.total
+                        ? "Paid"
+                        : r.paid > 0
+                          ? "Partial"
+                          : "Unpaid"}
                   </Badge>
                 ),
               },
@@ -1114,7 +595,7 @@ export default function App() {
                       right: true,
                       render: (p: Party) => money(p.limit),
                     },
-                    { key: "terms", label: "Terms", render: () => "30 days" },
+                    { key: "terms", label: "Terms", render: (p: Party) => (p.terms ? `${p.terms} days` : "—") },
                   ]
                 : []),
               {
@@ -1147,23 +628,27 @@ export default function App() {
   function inventoryPage() {
     const rows = store.products.filter(
       (p) =>
-        `${p.name} ${p.company} ${p.category} ${p.article} ${p.color} ${p.id}`
+        `${p.name} ${p.company} ${p.category} ${p.article} ${p.color} ${p.id} ${p.sku ?? ""} ${p.barcode ?? ""}`
           .toLowerCase()
           .includes(query.toLowerCase()) &&
         (filter === "All statuses" ||
           (filter === "Low stock"
-            ? p.stock > 0 && p.stock < 10
+            ? p.stock > 0 && p.stock <= p.minStock
             : filter === "Out of stock"
               ? p.stock === 0
-              : p.stock >= 10)),
+              : p.stock > p.minStock)),
     )
     return (
       <>
         <PageHeading
           title="Inventory"
-          description="Know exactly what’s on your shelves, by article, variant and Than size."
+          description={`Know exactly what’s on your shelves, by item, variant and ${L.size.toLowerCase()}.`}
         >
           <ExportButton name="inventory" rows={rows} />
+          <Button onClick={() => open("product")} disabled={!session.can("catalog.manage")}>
+            <Plus size={15} />
+            Add product
+          </Button>
           <Button onClick={() => open("physical-count")}>
             <ClipboardList size={15} />
             Physical count
@@ -1181,13 +666,13 @@ export default function App() {
             )}
           />
           <Summary
-            label="Total available Thans"
+            label={`Total available ${L.units}`}
             value={String(store.products.reduce((s, p) => s + p.stock, 0))}
           />
           <Summary
             label="Low stock items"
             value={String(
-              store.products.filter((p) => p.stock > 0 && p.stock < 10).length,
+              store.products.filter((p) => p.stock > 0 && p.stock <= p.minStock).length,
             )}
             tone="amber"
           />
@@ -1202,7 +687,7 @@ export default function App() {
             <SearchBox
               value={query}
               onChange={setQuery}
-              placeholder="Search product, article, company or SKU…"
+              placeholder="Search product, company, SKU or barcode…"
             />
             <Select
               aria-label="Stock status"
@@ -1234,7 +719,7 @@ export default function App() {
               },
               { key: "company", label: "Company" },
               { key: "color", label: "Variant" },
-              { key: "size", label: "Than size", render: (p) => `${p.size}m` },
+              { key: "size", label: L.size, render: (p) => p.size || "—" },
               {
                 key: "stock",
                 label: "Qty",
@@ -1266,7 +751,7 @@ export default function App() {
                   <Badge>
                     {p.stock === 0
                       ? "Out of stock"
-                      : p.stock < 10
+                      : p.stock <= p.minStock
                         ? "Low stock"
                         : "In stock"}
                   </Badge>
@@ -1278,7 +763,7 @@ export default function App() {
         <div className="dashboard-footnote">
           <span>
             <ShieldCheck size={14} />
-            Main warehouse · Quantities in Thans · Rates per Than
+            Quantities in {L.units.toLowerCase()} · Rates {L.perUnit}
           </span>
           <span>Click a product to see stock movement</span>
         </div>
@@ -1487,12 +972,13 @@ export default function App() {
     )
   }
   function cashPage() {
+    const cashNames = new Set(store.masters.accounts.filter((a) => a.type === "cash").map((a) => a.name))
     const entries = store.entries
       .filter((e) =>
         accountTab === "Cash book"
-          ? e.account === "Cash in hand"
+          ? cashNames.has(e.account)
           : accountTab === "Bank book"
-            ? e.account !== "Cash in hand"
+            ? !cashNames.has(e.account)
             : true,
       )
       .filter((e) =>
@@ -1506,6 +992,10 @@ export default function App() {
           title="Cash & bank"
           description="A clear view of your money, accounts and daily movements."
         >
+          <Button onClick={() => open("account")} disabled={!session.can("settings.manage")}>
+            <Plus size={16} />
+            Add account
+          </Button>
           <Button onClick={() => open("closing")}>
             <CheckCircle2 size={16} />
             Cash closing
@@ -1516,16 +1006,19 @@ export default function App() {
           </Button>
         </PageHeading>
         <div className="account-grid">
-          {Object.entries(store.accounts).map(([name, balance], i) => (
+          {Object.entries(store.accounts).map(([name, balance]) => {
+            const isCash = cashNames.has(name)
+            const i = isCash ? 0 : 1
+            return (
             <Panel key={name}>
               <div className="account-card">
                 <span
-                  className={`account-icon ${i === 0 ? "green" : "indigo"}`}
+                  className={`account-icon ${isCash ? "green" : "indigo"}`}
                 >
-                  {i === 0 ? <Wallet size={22} /> : <Landmark size={22} />}
+                  {isCash ? <Wallet size={22} /> : <Landmark size={22} />}
                 </span>
                 <Badge tone="neutral">
-                  {i === 0 ? "Cash account" : "Bank account"}
+                  {isCash ? "Cash account" : "Bank account"}
                 </Badge>
                 <Heading level={3}>{name}</Heading>
                 <span className="muted">Current balance</span>
@@ -1565,7 +1058,8 @@ export default function App() {
                 </Button>
               </div>
             </Panel>
-          ))}
+            )
+          })}
         </div>
         <Panel>
           <div className="panel-heading">
@@ -1695,21 +1189,21 @@ export default function App() {
                   key: "actions",
                   label: "Actions",
                   render: (u) => (
-                    <Button
-                      variant="ghost"
-                      disabled={u.role === "Owner / Admin"}
-                      onClick={() => open("user-status", u)}
-                    >
-                      {u.status === "Active" ? "Deactivate" : "Activate"}
-                    </Button>
+                    <div className="row-actions">
+                      <Button variant="ghost" disabled={!session.can("users.manage")} onClick={() => open("user-password", u)}>
+                        Reset password
+                      </Button>
+                      <Button variant="ghost" disabled={!session.can("users.manage")} onClick={() => open("user-status", u)}>
+                        {u.status === "Active" ? "Deactivate" : "Activate"}
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
             />
             <div className="panel-note">
               <Shield size={14} />
-              Demo users and permissions are UI records. Production
-              authentication and access enforcement require a native backend.
+              Access is enforced by the program itself. Changes to roles apply the next time a person performs an action.
             </div>
           </Panel>
         ) : userTab === "Audit log" ? (
@@ -1735,13 +1229,13 @@ export default function App() {
         ) : (
           <div className="settings-layout">
             <Panel className="settings-navigation">
-              {roles.map((r) => (
+              {store.masters.roles.map((r) => (
                 <Action
-                  key={r}
-                  className={role === r ? "active" : ""}
-                  onClick={() => setRole(r)}
+                  key={r.name}
+                  className={role === r.name ? "active" : ""}
+                  onClick={() => setRole(r.name)}
                 >
-                  {r}
+                  {r.name}
                   <ChevronRight size={15} />
                 </Action>
               ))}
@@ -1751,57 +1245,27 @@ export default function App() {
               subtitle="Choose which actions this role can perform."
             >
               <div className="permissions-list">
-                {[
-                  "Sales",
-                  "Customers",
-                  "Recovery",
-                  "Purchases",
-                  "Suppliers",
-                  "Inventory",
-                  "Expenses",
-                  "Cash & bank",
-                  "Reports",
-                  "Users",
-                  "Settings",
-                  "Void sale",
-                  "High discount",
-                  "Stock adjustment",
-                  "Financial controls",
-                ]
-                  .filter((p) => p !== "Recovery" || isEnabled("recovery"))
-                  .map((p, i) => (
-                    <div className="setting-toggle" key={p}>
+                {PERMISSION_LABELS.filter(([key]) => key !== "payment.create" || true).map(([key, label, sensitive]) => {
+                  const current = store.masters.roles.find((r) => r.name === role)
+                  const owner = role === "Owner / Admin"
+                  return (
+                    <div className="setting-toggle" key={key}>
                       <div>
-                        <strong>{p}</strong>
-                        <span>
-                          {i > 10
-                            ? "Sensitive action · owner approval recommended"
-                            : "View and manage " + p.toLowerCase()}
-                        </span>
+                        <strong>{label}</strong>
+                        <span>{sensitive ? "Sensitive action · give only to people you trust" : "Allows this action"}</span>
                       </div>
                       <Input
-                        aria-label={`Allow ${p} for ${role}`}
+                        aria-label={`Allow ${label} for ${role}`}
                         type="checkbox"
-                        checked={
-                          store.permissions[role + ":" + p] ??
-                          (role === "Owner / Admin" ||
-                            (role === "Sales User" && i < 3) ||
-                            (role === "Viewer" && i === 8))
-                        }
-                        disabled={role === "Owner / Admin"}
-                        onChange={(e) => {
-                          setStore((s) => ({
-                            ...s,
-                            permissions: {
-                              ...s.permissions,
-                              [role + ":" + p]: e.target.checked,
-                            },
-                          }))
-                          notify("Permission preference saved.")
+                        checked={owner || !!current?.permissions.includes(key)}
+                        disabled={owner || !session.can("users.manage")}
+                        onChange={async (e) => {
+                          await run(() => api("role:setPermission", { role, permission: key, allowed: e.target.checked }))
                         }}
                       />
                     </div>
-                  ))}
+                  )
+                })}
               </div>
             </Panel>
           </div>
@@ -1815,6 +1279,7 @@ export default function App() {
         return (
           <Dashboard
             {...store}
+            userName={session.user.name}
             navigate={navigate}
             open={(type, data) =>
               open(type === "party" ? "party-detail" : type, data)
@@ -1826,6 +1291,8 @@ export default function App() {
           <SalesWorkspace
             parties={store.parties}
             products={store.products}
+            walkInId={store.walkInId}
+            accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p)}
             onHistory={() => navigate("Sales History")}
           />
@@ -1836,6 +1303,7 @@ export default function App() {
             purchase
             parties={store.suppliers}
             products={store.products}
+            accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p, true)}
             onHistory={() => navigate("Purchases")}
           />
@@ -1859,25 +1327,35 @@ export default function App() {
       case "Users & Permissions":
         return usersPage()
       case "Settings":
-        return <Settings notify={notify} />
+        return <Settings notify={notify} masters={store.masters} run={run} canManage={session.can("settings.manage")} />
       case "Backup & Restore":
-        return (
-          <Backup
-            lastBackup={lastBackup}
-            onBackup={createBackup}
-            onRestore={restoreFile}
-          />
-        )
+        return <Backup notify={notify} canRestore={session.can("backup.restore")} secondaryDir={store.masters.settings["backup.secondary_dir"] ?? ""} onChanged={() => void refresh()} />
       case "Returns":
         return (
           <Returns
             sales={store.sales}
             purchases={store.purchases}
+            returns={store.returns}
+            products={store.products}
+            accounts={store.masters.accounts.filter((a) => a.active).map((a) => a.name)}
             onReturn={processReturn}
+            onExchange={processExchange}
           />
         )
       case "Reports":
-        return <Reports selected={report} onSelect={setReport} {...store} />
+        return (
+          <Reports
+            selected={report}
+            onSelect={setReport}
+            historyFrom={store.historyFrom}
+            parties={store.parties}
+            suppliers={store.suppliers}
+            companies={store.masters.companies}
+            cities={store.masters.cities}
+            accounts={store.masters.accounts}
+            canExport={session.can("report.export")}
+          />
+        )
       default:
         return null
     }
@@ -1903,14 +1381,16 @@ export default function App() {
         "Correct stock with a reason and authorization.",
       ],
       party: [
-        page === "Suppliers" ? "Add supplier" : "Add party",
+        (data as Party | undefined)?.id ? "Edit details" : page === "Suppliers" ? "Add supplier" : "Add party",
         "A few details to get started.",
       ],
       transfer: [
         "Transfer between accounts",
         "Move funds without affecting income or expenses.",
       ],
-      user: ["Add user", "Create a local demo team member."],
+      user: ["Add user", "Create a team member and choose what they can do."],
+      product: [(data as Product | undefined)?.id ? "Edit product" : "Add product", "Items are kept per variant, with their own price and stock."],
+      account: ["Add account", "A cash drawer or a bank account."],
     }
     if (entryTitles[type])
       return (
@@ -1925,6 +1405,7 @@ export default function App() {
               type === "supplier-payment" ? store.suppliers : store.parties
             }
             products={store.products}
+            masters={store.masters}
             initial={data as Party | Product}
             onClose={closeModal}
             onSubmit={submitEntry}
@@ -1939,9 +1420,19 @@ export default function App() {
           onClose={closeModal}
         >
           <InvoicePreview
-            transaction={type === "invoice" ? data as Transaction : undefined}
-            collection={type === "receipt" ? data as Collection : undefined}
+            transaction={type === "invoice" ? (data as Transaction) : undefined}
+            collection={type === "receipt" ? (data as Collection) : undefined}
             onClose={closeModal}
+            purchase={!!(data as Transaction | undefined)?.supplierInvoice || store.purchases.some((p) => p.id === (data as Transaction | undefined)?.id)}
+            canVoid={type === "invoice" && session.can((data as Transaction)?.id?.startsWith("PUR") ? "purchase.void" : "sale.void")}
+            onVoid={async (reason) => {
+              const t = data as Transaction
+              const purchase = store.purchases.some((p) => p.id === t.id)
+              if (await run(() => api(purchase ? "purchase:void" : "sale:void", { id: t.id, reason }))) {
+                closeModal()
+                notify(`${t.id} cancelled. Stock, balances and cash were reversed.`)
+              }
+            }}
           />
         </Modal>
       )
@@ -1961,12 +1452,12 @@ export default function App() {
           <PartyDetails
             party={party}
             supplier={supplier}
-            sales={supplier ? store.purchases : store.sales}
-            collections={store.collections}
             onAction={(action) =>
               action === "sale"
                 ? navigate(supplier ? "New Purchase" : "POS / Sales")
-                : open(supplier ? "supplier-payment" : "recovery", party)
+                : action === "edit"
+                  ? open("party", party)
+                  : open(supplier ? "supplier-payment" : "recovery", party)
             }
           />
         </Modal>
@@ -1980,46 +1471,11 @@ export default function App() {
             product={store.products.find((x) => x.id === p.id) || p}
             movements={store.movements}
             onAdjust={() => open("adjust", p)}
+            onEdit={session.can("catalog.manage") ? () => open("product", store.products.find((x) => x.id === p.id) || p) : undefined}
           />
         </Modal>
       )
     }
-    if (type === "restore")
-      return (
-        <Modal
-          title="Restore this backup?"
-          description={String(data)}
-          onClose={closeModal}
-        >
-          <div className="modal-body">
-            <div className="confirm-notice">
-              <strong>Your current workspace will be replaced.</strong>
-              <p>
-                The backup contains {pendingRestore?.sales.length} sales,{" "}
-                {pendingRestore?.parties.length} parties and{" "}
-                {pendingRestore?.products.length} stock items. A safety copy
-                will download first.
-              </p>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <Button onClick={closeModal}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                createBackup()
-                if (pendingRestore) setStore(pendingRestore)
-                setPendingRestore(null)
-                closeModal()
-                notify("Backup restored. Your workspace is ready.")
-              }}
-            >
-              <RotateCcw size={15} />
-              Confirm restore
-            </Button>
-          </div>
-        </Modal>
-      )
     if (type === "user-status") {
       const u = data as User
       return (
@@ -2040,21 +1496,11 @@ export default function App() {
             <Button onClick={closeModal}>Cancel</Button>
             <Button
               variant="primary"
-              onClick={() => {
-                setStore((s) => ({
-                  ...s,
-                  users: s.users.map((x) =>
-                    x.id === u.id
-                      ? {
-                          ...x,
-                          status: x.status === "Active" ? "Inactive" : "Active",
-                        }
-                      : x,
-                  ),
-                  audits: [audit("User status changed", u.name), ...s.audits],
-                }))
-                closeModal()
-                notify("User status updated.")
+              onClick={async () => {
+                if (await run(() => api("user:setActive", { id: u.id, active: u.status !== "Active" }))) {
+                  closeModal()
+                  notify("User status updated.")
+                }
               }}
             >
               Confirm
@@ -2063,13 +1509,39 @@ export default function App() {
         </Modal>
       )
     }
+    if (type === "user-password") {
+      const u = data as User
+      return (
+        <Modal title={`Reset password for ${u.name}`} onClose={closeModal}>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const password = String(new FormData(e.currentTarget).get("password"))
+              if (await run(() => api("user:resetPassword", { id: u.id, password }))) {
+                closeModal()
+                notify("Password changed.")
+              }
+            }}
+          >
+            <div className="modal-body">
+              <Field label="New password" required hint="At least 6 characters. Tell the person privately.">
+                <Input name="password" type="password" minLength={6} required autoFocus />
+              </Field>
+            </div>
+            <div className="modal-footer">
+              <Button type="button" onClick={closeModal}>Cancel</Button>
+              <Button variant="primary" type="submit">Change password</Button>
+            </div>
+          </form>
+        </Modal>
+      )
+    }
     if (type === "logout")
       return (
         <Modal title="Lock this workspace?" onClose={closeModal}>
           <div className="modal-body">
             <p>
-              All changes are saved on this device. You can return using the
-              demo login.
+              Everything is saved on this computer. Sign in again to continue.
             </p>
           </div>
           <div className="modal-footer">
@@ -2077,8 +1549,8 @@ export default function App() {
             <Button
               variant="primary"
               onClick={() => {
-                setLoggedIn(false)
                 closeModal()
+                void session.logout()
               }}
             >
               Lock workspace
@@ -2088,92 +1560,52 @@ export default function App() {
       )
     if (type === "closing")
       return (
-        <Modal
-          title="Daily cash closing"
-          description="Compare cash on hand with the recorded balance."
-          onClose={closeModal}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const value = Number(new FormData(e.currentTarget).get("counted"))
-              const diff = value - store.accounts["Cash in hand"]
-              setStore((s) => ({
-                ...s,
-                audits: [
-                  audit(
-                    "Cash closing",
-                    `Counted ${money(value)} · Difference ${money(diff)}`,
-                  ),
-                  ...s.audits,
-                ],
-              }))
-              closeModal()
-              notify(
-                "Cash closing recorded. " +
-                  (diff
-                    ? `Difference: ${money(diff)}. No automatic balance adjustment made.`
-                    : "Cash is balanced."),
-              )
+        <Modal title="Daily cash closing" description="Compare the money you counted with the recorded balance." onClose={closeModal}>
+          <ClosingForm
+            accounts={store.masters.accounts.filter((a) => a.active)}
+            onClose={closeModal}
+            onSubmit={async (v) => {
+              const res = await run(() => api("closing:create", v))
+              if (res) {
+                closeModal()
+                notify(res.variance ? `Closing recorded. Difference: ${money(res.variance)}.` : "Closing recorded. The cash is balanced.")
+              }
             }}
-          >
-            <div className="modal-body">
-              <div className="form-balance">
-                <span>Expected cash balance</span>
-                <strong>{money(store.accounts["Cash in hand"])}</strong>
-              </div>
-              <Field label="Counted cash (Rs.)" required>
-                <Input name="counted" type="number" min="0" required />
-              </Field>
-              <Field label="Closing notes">
-                <Textarea rows={2} />
-              </Field>
-            </div>
-            <div className="modal-footer">
-              <Button onClick={closeModal} type="button">
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit">
-                <Check size={15} />
-                Record closing
-              </Button>
-            </div>
-          </form>
+          />
         </Modal>
       )
     if (type === "physical-count")
       return (
-        <Modal
-          title="Physical stock count"
-          description="Count your shelf stock, then record any differences."
-          wide
-          onClose={closeModal}
-        >
-          <DataTable
-            rows={store.products}
-            columns={[
-              { key: "name", label: "Product" },
-              { key: "color", label: "Variant" },
-              { key: "size", label: "Size", render: (p) => `${p.size}m` },
-              { key: "stock", label: "Recorded qty", right: true },
-              {
-                key: "action",
-                label: "Adjustment",
-                render: (p) => (
-                  <Button onClick={() => open("adjust", p)}>
-                    Record difference
-                  </Button>
-                ),
-              },
-            ]}
-          />
-          <div className="modal-footer">
-            <Button onClick={() => window.print()}>
-              <Printer size={15} />
-              Print count sheet
-            </Button>
-            <Button onClick={closeModal}>Close</Button>
-          </div>
+        <Modal title="Physical stock count" description="Enter the quantity you counted. Leave blank for items you did not count. Differences are adjusted and recorded." wide onClose={closeModal}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const d: Record<string, string> = {}
+              new FormData(e.currentTarget).forEach((v, k) => {
+                d[k] = String(v)
+              })
+              void submitEntry(d)
+            }}
+          >
+            <div className="modal-body">
+              <DataTable
+                rows={store.products.filter((p) => p.active)}
+                columns={[
+                  { key: "name", label: "Product" },
+                  { key: "size", label: L.size },
+                  { key: "stock", label: "Recorded qty", right: true },
+                  { key: "count", label: "Counted qty", render: (p) => <Input name={`count:${p.id}`} type="number" min="0" step="1" aria-label={`Counted quantity for ${p.name}`} /> },
+                ]}
+              />
+              <Field label="Notes">
+                <Textarea name="notes" rows={2} placeholder="e.g. Monthly count" />
+              </Field>
+            </div>
+            <div className="modal-footer">
+              <Button type="button" onClick={closeModal}>Cancel</Button>
+              <Button variant="primary" type="submit"><Check size={15} />Save count</Button>
+            </div>
+          </form>
         </Modal>
       )
     if (type === "recovery-filters")
@@ -2192,7 +1624,7 @@ export default function App() {
                 <Input
                   name="search"
                   defaultValue={query}
-                  placeholder="e.g. Lahore party name or Ahmed"
+                  placeholder="Party name or phone number"
                 />
               </Field>
             </div>
@@ -2217,7 +1649,7 @@ export default function App() {
           <div className="modal-body">
             <div className="info-notice">
               <CalendarDays size={19} />
-              This sample business day is Wednesday, 18 June 2025.
+              Today is {new Date(`${today}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.
             </div>
             <p className="muted">
               Open a sales report to choose a custom date range and view
@@ -2291,24 +1723,15 @@ export default function App() {
             </div>
             <div className="info-notice">
               <Database size={16} />
-              Sample records are stored locally in your browser. Download
-              regular backups. This is an interactive UI prototype, not a
-              certified accounting system.
+              Everything is stored on this computer. A backup is made every
+              day and when you close the program.
             </div>
           </div>
         </Modal>
       )
     return null
   }
-  if (!loggedIn)
-    return (
-      <Login
-        onLogin={() => {
-          setLoggedIn(true)
-          notify("Welcome back. Your local workspace is ready.")
-        }}
-      />
-    )
+  if (!ready) return null
   return (
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
@@ -2375,10 +1798,10 @@ export default function App() {
             <ShieldCheck size={13} />
           </div>
           <div className="sidebar-user">
-            <span className="avatar">AA</span>
+            <span className="avatar">{session.user.name.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()}</span>
             <div>
-              <strong>Ahmed Ali</strong>
-              <span>Owner / Admin</span>
+              <strong>{session.user.name}</strong>
+              <span>{session.user.role}</span>
             </div>
             <Action
               title="Lock workspace"
@@ -2504,7 +1927,7 @@ export default function App() {
             </Action>
             <span className="header-divider" />
             <Action className="header-user" onClick={() => open("logout")}>
-              <span className="avatar small">AA</span>
+              <span className="avatar small">{session.user.name.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()}</span>
               <ChevronDown size={13} />
             </Action>
           </div>
@@ -2519,67 +1942,70 @@ export default function App() {
   )
 }
 
-function Login({ onLogin }: { onLogin: () => void }) {
-  const { business } = useBusiness()
-  const [error, setError] = useState("")
+const PERMISSION_LABELS: [string, string, boolean][] = [
+  ["sale.create", "Create sales", false],
+  ["sale.void", "Cancel sales", true],
+  ["sale.price_override", "Change the price of an item", true],
+  ["sale.discount_override", "Give discounts above the limit", true],
+  ["sale.credit_limit_override", "Sell beyond a party's credit limit", true],
+  ["sale.backdate", "Enter back-dated transactions", true],
+  ["purchase.create", "Create purchases", false],
+  ["purchase.void", "Cancel purchases", true],
+  ["payment.create", "Receive and make payments, transfer money", false],
+  ["expense.create", "Record expenses", false],
+  ["return.create", "Record returns and exchanges", false],
+  ["return.no_invoice", "Accept a return without an invoice", true],
+  ["stock.adjust", "Adjust stock and do stock counts", true],
+  ["cash.close", "Close the daily cash", false],
+  ["ledger.adjust", "Enter opening balances and ledger adjustments", true],
+  ["catalog.manage", "Add and edit products", false],
+  ["party.manage", "Add and edit parties and suppliers", false],
+  ["report.view", "View reports", false],
+  ["report.export", "Export reports", false],
+  ["settings.manage", "Change settings", true],
+  ["users.manage", "Manage users and roles", true],
+  ["backup.restore", "Restore a backup", true],
+]
+
+function ClosingForm({ accounts, onClose, onSubmit }: { accounts: { name: string; balance: number }[]; onClose: () => void; onSubmit: (v: { account: string; date: string; counted: number; notes?: string }) => void | Promise<void> }) {
+  const [account, setAccount] = useState(accounts[0]?.name ?? "")
+  const balance = accounts.find((a) => a.name === account)?.balance ?? 0
   return (
-    <div className="login-screen">
-      <div className="login-brand">
-        <BrandMark logo={business.logo} />
-        <strong>{business.name.toUpperCase()}</strong>
-      </div>
-      <div className="login-card">
-        <span className="login-icon">
-          <ShieldCheck size={26} />
-        </span>
-        <Heading level={1}>Welcome back</Heading>
-        <p>Sign in to your local business workspace.</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            const data = new FormData(e.currentTarget)
-            if (
-              data.get("username") !== "ahmed.admin" ||
-              data.get("password") !== "demo1234"
-            ) {
-              setError("Use the demo username and password shown below.")
-              return
-            }
-            onLogin()
-          }}
-        >
-          <Field label="Username" required>
-            <Input
-              name="username"
-              defaultValue="ahmed.admin"
-              required
-              autoFocus
-            />
-          </Field>
-          <Field label="Password" required>
-            <Input
-              name="password"
-              type="password"
-              defaultValue="demo1234"
-              required
-            />
-          </Field>
-          {error && <div className="form-error">{error}</div>}
-          <Button variant="primary" className="full-width" type="submit">
-            Open workspace
-            <ArrowRight size={16} />
-          </Button>
-        </form>
-        <div className="demo-login">
-          Demo: ahmed.admin / demo1234
-          <br />
-          UI demonstration only · No production authentication
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        const f = new FormData(e.currentTarget)
+        void onSubmit({ account, date: String(f.get("date")), counted: Number(f.get("counted")), notes: String(f.get("notes") || "") })
+      }}
+    >
+      <div className="modal-body">
+        <Field label="Account" required>
+          <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+            {accounts.map((a) => (
+              <option key={a.name}>{a.name}</option>
+            ))}
+          </Select>
+        </Field>
+        <div className="form-balance">
+          <span>Recorded balance now</span>
+          <strong>{money(balance)}</strong>
         </div>
+        <div className="form-grid">
+          <Field label="Closing date" required>
+            <Input name="date" type="date" defaultValue={today} required />
+          </Field>
+          <Field label="Counted cash (Rs.)" required>
+            <Input name="counted" type="number" min="0" required />
+          </Field>
+        </div>
+        <Field label="Closing notes">
+          <Textarea name="notes" rows={2} />
+        </Field>
       </div>
-      <div className="login-footer">
-        <HardDrive size={15} />
-        Your records stay on this device. No internet connection required.
+      <div className="modal-footer">
+        <Button type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit"><Check size={15} />Record closing</Button>
       </div>
-    </div>
+    </form>
   )
 }

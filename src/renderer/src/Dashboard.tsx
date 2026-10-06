@@ -1,3 +1,5 @@
+import { L, today } from "./data"
+import type { DashboardData } from "@shared/models"
 import { useConfig } from "./config"
 import { useState } from "react"
 import {
@@ -46,9 +48,17 @@ type Props = {
   expenses: Expense[]
   parties: Party[]
   products: Product[]
+  dashboard: DashboardData
+  userName: string
   navigate: (page: string) => void
   open: (type: string, data?: unknown) => void
 }
+/** 0, 250, 500 ... for small shops; 1.5k, 25k ... for larger turnover. */
+function axisLabel(v: number, max: number): string {
+  if (v < 1000) return String(Math.round(v))
+  return `${+(v / 1000).toFixed(max < 10000 ? 1 : 0)}k`
+}
+
 export default function Dashboard({
   sales,
   purchases,
@@ -56,6 +66,8 @@ export default function Dashboard({
   expenses,
   parties,
   products,
+  dashboard,
+  userName,
   navigate,
   open,
 }: Props) {
@@ -63,27 +75,17 @@ export default function Dashboard({
   const [period, setPeriod] = useState("This week")
   const [activity, setActivity] = useState("Recent sales")
   const [hover, setHover] = useState<number | null>(null)
-  const totalSales = sales.reduce((sum, row) => sum + row.total, 0)
-  const recovered = collections.reduce((sum, row) => sum + row.amount, 0)
-  const totalExpenses = expenses.reduce((sum, row) => sum + row.amount, 0)
-  const stockValue = products.reduce((sum, p) => sum + p.stock * p.cost, 0)
-  const values =
-    period === "This week"
-      ? [124000, 185000, 152000, 238000, 196000, 272000, totalSales]
-      : [420000, 580000, 510000, 760000, 650000, 890000, 1040000]
-  const labels =
-    period === "This week"
-      ? [
-          "Thu, 12",
-          "Fri, 13",
-          "Sat, 14",
-          "Sun, 15",
-          "Mon, 16",
-          "Tue, 17",
-          "Wed, 18",
-        ]
-      : ["1 Jun", "4 Jun", "7 Jun", "10 Jun", "13 Jun", "16 Jun", "18 Jun"]
-  const max = period === "This week" ? 400000 : 1200000
+  const d = dashboard
+  const series = period === "This week" ? d.week : d.month
+  const prev = period === "This week" ? d.weekPrev : d.monthPrev
+  const values = series.map((x) => x.value)
+  const labels = series.map((x) => x.label)
+  const periodTotal = values.reduce((s, v) => s + v, 0)
+  const change = prev > 0 ? Math.round(((periodTotal - prev) / prev) * 1000) / 10 : null
+  // a "nice" top for the chart axis, in thousands
+  const peak = Math.max(1000, ...values)
+  const step = Math.pow(10, Math.floor(Math.log10(peak)))
+  const max = Math.ceil(peak / step) * step
   const points = values.map((v, i) => ({
     x: 52 + i * 90,
     y: 180 - (v / max) * 145,
@@ -96,42 +98,14 @@ export default function Dashboard({
     )
     .join(" ")
   const kpis = [
-    {
-      title: "Today's sales",
-      amount: totalSales,
-      icon: ShoppingCart,
-      delta: "+12.8%",
-      detail: `${sales.length} invoices today`,
-      tone: "indigo",
-    },
-    {
-      title: "Today's recovery",
-      amount: recovered,
-      icon: Wallet,
-      delta: "+8.2%",
-      detail: `${collections.length} payments received`,
-      tone: "green",
-    },
-    {
-      title: "Today's purchases",
-      amount: purchases
-        .filter((p) => p.date === "2025-06-18")
-        .reduce((s, p) => s + p.total, 0),
-      icon: ShoppingBag,
-      delta: "",
-      detail: "2 purchase invoices",
-      tone: "blue",
-    },
-    {
-      title: "Gross profit",
-      amount: Math.round(totalSales * 0.186),
-      icon: TrendingUp,
-      delta: "18.6% margin",
-      detail: "Before operating expenses",
-      tone: "green",
-    },
+    { title: "Today's sales", amount: d.todaySales, icon: ShoppingCart, delta: "", detail: `${d.todaySalesCount} invoice${d.todaySalesCount === 1 ? "" : "s"} today`, tone: "indigo" },
+    ...(isEnabled("recovery")
+      ? [{ title: "Today's recovery", amount: d.todayRecovery, icon: Wallet, delta: "", detail: `${d.todayRecoveryCount} payment${d.todayRecoveryCount === 1 ? "" : "s"} received`, tone: "green" }]
+      : []),
+    { title: "Today's purchases", amount: d.todayPurchases, icon: ShoppingBag, delta: "", detail: `${d.todayPurchaseCount} purchase invoice${d.todayPurchaseCount === 1 ? "" : "s"}`, tone: "blue" },
+    { title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" },
   ]
-  const low = products.filter((p) => p.stock < 10)
+  const low = products.filter((p) => p.active && p.stock <= p.minStock)
   const rows =
     activity === "Recent sales"
       ? sales
@@ -152,12 +126,12 @@ export default function Dashboard({
         <div>
           <div className="eyebrow">YOUR BUSINESS AT A GLANCE</div>
           <Heading level={1}>Business overview</Heading>
-          <p>Welcome back, Ahmed. Here’s how your business is doing today.</p>
+          <p>Welcome back, {userName}. Here’s how your business is doing today.</p>
         </div>
         <div className="heading-actions">
           <Button onClick={() => open("date")}>
             <CalendarDays size={15} />
-            18 Jun, 2025
+            {new Date(`${today}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
             <ChevronDown size={14} />
           </Button>
           <Button variant="primary" onClick={() => navigate("POS / Sales")}>
@@ -192,28 +166,28 @@ export default function Dashboard({
         {[
           {
             label: "Total receivables",
-            amount: parties.reduce((s, p) => s + p.balance, 0),
+            amount: d.receivables,
             icon: ArrowDownLeft,
             tone: "red",
             page: "Customers",
           },
           {
             label: "Total payables",
-            amount: 570000,
+            amount: d.payables,
             icon: ArrowUpRight,
             tone: "amber",
             page: "Suppliers",
           },
           {
             label: "Stock value",
-            amount: stockValue,
+            amount: d.stockValue,
             icon: Package,
             tone: "indigo",
             page: "Inventory",
           },
           {
             label: "Today's expenses",
-            amount: totalExpenses,
+            amount: d.todayExpenses,
             icon: Receipt,
             tone: "neutral",
             page: "Expenses",
@@ -277,13 +251,16 @@ export default function Dashboard({
           className="sales-chart-panel"
         >
           <div className="chart-summary">
-            <strong>{money(values.reduce((s, v) => s + v, 0))}</strong>
-            <span className="trend">
-              <ArrowUpRight size={14} />
-              12.8%
-            </span>
+            <strong>{money(periodTotal)}</strong>
+            {change !== null && (
+              <span className="trend">
+                <ArrowUpRight size={14} style={change < 0 ? { transform: "rotate(90deg)" } : undefined} />
+                {Math.abs(change)}%
+              </span>
+            )}
             <span className="muted">
-              vs. previous {period === "This week" ? "week" : "month"}
+              {change === null ? "No sales in the previous " : "vs. previous "}
+              {period === "This week" ? "week" : "4 weeks"}
             </span>
             <span className="chart-legend">
               <i />
@@ -313,7 +290,7 @@ export default function Dashboard({
                     strokeDasharray="4 4"
                   />
                   <text x="0" y={39 + i * 36.25} fontSize="10" fill="#8290a4">
-                    {Math.round((max * (1 - i / 4)) / 1000)}k
+                    {axisLabel(max * (1 - i / 4), max)}
                   </text>
                 </g>
               ))}
@@ -394,21 +371,21 @@ export default function Dashboard({
           <div className="payment-total">
             <span>Total received</span>
             <strong>
-              {money(sales.reduce((s, p) => s + p.paid, 0) + recovered)}
+              {money(d.receivedCash + d.receivedBank)}
             </strong>
           </div>
           <div className="payment-progress">
-            <span style={{ width: "64%" }} />
-            <span style={{ width: "36%" }} />
+            <span style={{ width: `${d.receivedCash + d.receivedBank > 0 ? (d.receivedCash / (d.receivedCash + d.receivedBank)) * 100 : 0}%` }} />
+            <span style={{ width: `${d.receivedCash + d.receivedBank > 0 ? (d.receivedBank / (d.receivedCash + d.receivedBank)) * 100 : 0}%` }} />
           </div>
           <div className="payment-legend">
             <span>
               <i className="indigo-dot" />
-              Cash <strong>64%</strong>
+              Cash <strong>{d.receivedCash + d.receivedBank > 0 ? Math.round((d.receivedCash / (d.receivedCash + d.receivedBank)) * 100) : 0}%</strong>
             </span>
             <span>
               <i className="teal-dot" />
-              Bank <strong>36%</strong>
+              Bank <strong>{d.receivedCash + d.receivedBank > 0 ? Math.round((d.receivedBank / (d.receivedCash + d.receivedBank)) * 100) : 0}%</strong>
             </span>
           </div>
           <div className="payment-rows">
@@ -419,7 +396,7 @@ export default function Dashboard({
                 </span>
                 Sales received
               </span>
-              <strong>{money(sales.reduce((s, p) => s + p.paid, 0))}</strong>
+              <strong>{money(d.salesReceived)}</strong>
             </div>
             {isEnabled("recovery") && (
               <div>
@@ -429,7 +406,7 @@ export default function Dashboard({
                   </span>
                   Recovery collected
                 </span>
-                <strong className="green-text">{money(recovered)}</strong>
+                <strong className="green-text">{money(d.todayRecovery)}</strong>
               </div>
             )}
             <div>
@@ -439,7 +416,7 @@ export default function Dashboard({
                 </span>
                 Expenses paid
               </span>
-              <strong>{money(totalExpenses)}</strong>
+              <strong>{money(d.todayExpenses)}</strong>
             </div>
           </div>
           <Action
@@ -509,8 +486,8 @@ export default function Dashboard({
             ]}
           />
           <div className="panel-note">
-            <span className="tiny-dot amber-dot" />2 parties have payments
-            overdue by 30+ days
+            <span className="tiny-dot amber-dot" />
+            {parties.filter((p) => p.balance > 0).length} part{parties.filter((p) => p.balance > 0).length === 1 ? "y" : "ies"} with an outstanding balance
           </div>
         </Panel>
         <Panel
@@ -544,8 +521,8 @@ export default function Dashboard({
               },
               {
                 key: "size",
-                label: "Than size",
-                render: (p) => `${p.size} meters`,
+                label: L.size,
+                render: (p) => p.size || "—",
               },
               {
                 key: "stock",
@@ -554,7 +531,7 @@ export default function Dashboard({
                 render: (p) => (
                   <span className={p.stock === 0 ? "red-text" : "amber-text"}>
                     <strong>{p.stock}</strong>{" "}
-                    <span className="muted">Thans</span>
+                    <span className="muted">{L.units}</span>
                   </span>
                 ),
               },
@@ -573,6 +550,56 @@ export default function Dashboard({
           </div>
         </Panel>
       </div>
+      {(isEnabled("expiry") || isEnabled("cityWise")) && (
+        <div className="dashboard-tables">
+          {isEnabled("expiry") && (
+            <Panel title="Expiry alerts" subtitle="Items that are expired or about to expire">
+              {d.expiring.length === 0 ? (
+                <div className="panel-note">
+                  <Package size={13} />
+                  Nothing is close to its expiry date
+                </div>
+              ) : (
+                <DataTable
+                  rows={d.expiring}
+                  columns={[
+                    { key: "product", label: "Product" },
+                    { key: "batch", label: "Batch" },
+                    { key: "expiry", label: "Expiry" },
+                    { key: "qty", label: "In stock", right: true },
+                    {
+                      key: "days",
+                      label: "Status",
+                      render: (x) => <Badge>{x.days < 0 ? `Expired ${-x.days} days ago` : x.days === 0 ? "Expires today" : `${x.days} days left`}</Badge>,
+                    },
+                  ]}
+                />
+              )}
+            </Panel>
+          )}
+          {isEnabled("cityWise") && (
+            <Panel title="City performance" subtitle="Last 30 days and what is still owed">
+              {d.cities.length === 0 ? (
+                <div className="panel-note">
+                  <Package size={13} />
+                  Add a city to your parties to see this
+                </div>
+              ) : (
+                <DataTable
+                  rows={d.cities}
+                  columns={[
+                    { key: "city", label: "City", render: (c) => <strong>{c.city}</strong> },
+                    { key: "parties", label: "Parties", right: true },
+                    { key: "sales", label: "Sales", right: true, render: (c) => money(c.sales) },
+                    { key: "recovery", label: "Recovery", right: true, render: (c) => money(c.recovery) },
+                    { key: "outstanding", label: "Outstanding", right: true, render: (c) => <strong>{money(c.outstanding)}</strong> },
+                  ]}
+                />
+              )}
+            </Panel>
+          )}
+        </div>
+      )}
       <Panel
         className="recent-panel"
         title="Recent activity"
@@ -598,8 +625,8 @@ export default function Dashboard({
               render: (r) => <span className="reference">{r.id}</span>,
             },
             { key: "party", label: "Party / supplier" },
-            { key: "date", label: "Date", render: () => "18 Jun 2025" },
-            { key: "items", label: "Thans", right: true },
+            { key: "date", label: "Date", render: (r) => new Date(`${r.date}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) },
+            { key: "items", label: L.units, right: true },
             {
               key: "total",
               label: "Total amount",
@@ -636,7 +663,7 @@ export default function Dashboard({
       <div className="dashboard-footnote">
         <span>
           <span className="tiny-dot green-dot" />
-          All changes saved on this device
+          Saved on this computer
         </span>
         <span>Amounts in Pakistani Rupees (PKR)</span>
       </div>

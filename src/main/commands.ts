@@ -12,6 +12,8 @@ import { postPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale } from "./services/sales"
 import { bizDate, buildSnapshot } from "./services/snapshot"
+import { ledgerView } from "./services/ledger"
+import { runReport } from "./services/reports"
 import { getBusiness, setBusiness } from "./services/business"
 import { getConfig, setFlag } from "./services/config"
 import type { Session } from "./session"
@@ -114,6 +116,8 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "auth:changePassword": (p) => (ctx.session.changePassword(db(), p.current, p.next), null),
 
     "snapshot:get": () => (actor(), buildSnapshot(db())),
+    "report:run": (p) => (requirePermission(actor(), "report.view"), runReport(db(), p)),
+    "ledger:get": (p) => (actor(), ledgerView(db(), p.kind, idNumber(p.id))),
     "business:get": () => getBusiness(db()),
     "business:set": (b) => (requirePermission(actor(), "settings.manage"), setBusiness(db(), actor().userId, b)),
     "config:get": () => getConfig(db()),

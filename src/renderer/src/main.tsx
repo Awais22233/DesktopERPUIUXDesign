@@ -5,15 +5,27 @@ import './index.css'
 import { ConfigProvider } from './config'
 import { BusinessProvider } from './business'
 import { LicenseGate } from './Activation'
+import { AuthGate } from './Auth'
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <LicenseGate>
-      <ConfigProvider>
+// The application only works inside the desktop shell, which provides the engine (window.api).
+const root = ReactDOM.createRoot(document.getElementById('root')!)
+root.render(
+  window.api ? (
+    <React.StrictMode>
+      <LicenseGate>
         <BusinessProvider>
-          <App />
+          <AuthGate>
+            <ConfigProvider>
+              <App />
+            </ConfigProvider>
+          </AuthGate>
         </BusinessProvider>
-      </ConfigProvider>
-    </LicenseGate>
-  </React.StrictMode>,
+      </LicenseGate>
+    </React.StrictMode>
+  ) : (
+    <div style={{ padding: 40, fontFamily: 'sans-serif' }}>
+      <h2>Please open the desktop application</h2>
+      <p>This program runs as an installed app. It cannot run inside a web browser.</p>
+    </div>
+  ),
 )

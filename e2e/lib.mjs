@@ -49,7 +49,7 @@ export async function launch(profile, client) {
       console.log("OK    " + name)
     } catch (e) {
       failed++
-      console.log("FAIL  " + name + " :: " + e.message.split("\n")[0])
+      console.log("FAIL  " + name + " :: " + e.message.split("\n").slice(0, 4).join(" | "))
       await shot("FAIL-" + name.replace(/\W+/g, "_")).catch(() => {})
       if (process.env.E2E_DEBUG) console.log((await page.locator("body").innerText().catch(() => "")).slice(0, 2500))
     }

@@ -131,7 +131,7 @@ await step("cancel a sale: stock and balance are reversed, the invoice is kept",
   await page.getByRole("button", { name: /Save sale/ }).click()
   await page.waitForSelector("text=/Sale INV-00002 saved/")
   await page.getByRole("button", { name: /Sales history/ }).click()
-  await page.getByText("INV-00002").first().click()
+  await page.locator("td", { hasText: "INV-00002" }).first().click()
   await page.getByRole("button", { name: "Cancel invoice" }).first().click()
   await page.getByLabel("Reason for cancelling").fill("Entered by mistake")
   await page.getByRole("button", { name: "Cancel invoice" }).last().click()

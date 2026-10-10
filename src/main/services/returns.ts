@@ -75,20 +75,23 @@ export function postSaleReturn(db: DB, actor: Actor, input: SaleReturnInput): Re
       if (!Number.isInteger(l.qty) || l.qty <= 0) throw new AppError("VALIDATION", "Return quantity must be a whole number greater than zero")
       if (input.saleId) {
         if (!l.saleLineId) throw new AppError("VALIDATION", "Select the invoice line to return")
-        const sl = db.prepare("SELECT id, variant_id, qty, line_total, unit_cost FROM sale_lines WHERE id = ? AND sale_id = ?").get(l.saleLineId, input.saleId) as
-          | { id: number; variant_id: number; qty: number; line_total: number; unit_cost: number }
+        const sl = db.prepare("SELECT id, variant_id, qty, line_total, cost_total FROM sale_lines WHERE id = ? AND sale_id = ?").get(l.saleLineId, input.saleId) as
+          | { id: number; variant_id: number; qty: number; line_total: number; cost_total: number }
           | undefined
         if (!sl) throw new AppError("NOT_FOUND", "Invoice line not found")
-        const done = db.prepare("SELECT COALESCE(SUM(qty),0) q, COALESCE(SUM(amount),0) a FROM sale_return_lines WHERE sale_line_id = ?").get(sl.id) as { q: number; a: number }
+        const done = db.prepare("SELECT COALESCE(SUM(qty),0) q, COALESCE(SUM(amount),0) a, COALESCE(SUM(cost_total),0) c FROM sale_return_lines WHERE sale_line_id = ?").get(sl.id) as { q: number; a: number; c: number }
         if (l.qty > sl.qty - done.q) throw new AppError("VALIDATION", `Only ${sl.qty - done.q} can still be returned for this item`)
         const effective = effectiveLineTotal(db, input.saleId, sl)
         const remainingValue = effective - done.a
         const amount = l.qty === sl.qty - done.q ? remainingValue : Math.min(Math.round((effective * l.qty) / sl.qty), remainingValue)
-        return { saleLineId: sl.id, variantId: sl.variant_id, qty: l.qty, amount, unitCost: sl.unit_cost, damaged: !!l.damaged }
+        // The goods come back at the exact cost they left at (the last unit takes the remainder).
+        const lastOne = l.qty === sl.qty - done.q
+        const costTotal = lastOne ? sl.cost_total - done.c : Math.min(Math.round((sl.cost_total * l.qty) / sl.qty), sl.cost_total - done.c)
+        return { saleLineId: sl.id, variantId: sl.variant_id, qty: l.qty, amount, costTotal, damaged: !!l.damaged }
       }
       if (!l.variantId || l.unitPrice === undefined || !Number.isSafeInteger(l.unitPrice) || l.unitPrice < 0) throw new AppError("VALIDATION", "Item and price are required")
       const avg = (db.prepare("SELECT avg_cost FROM stock_levels WHERE variant_id = ?").get(l.variantId) as { avg_cost: number } | undefined)?.avg_cost ?? 0
-      return { saleLineId: null, variantId: l.variantId, qty: l.qty, amount: l.unitPrice * l.qty, unitCost: avg, damaged: !!l.damaged }
+      return { saleLineId: null, variantId: l.variantId, qty: l.qty, amount: l.unitPrice * l.qty, costTotal: avg * l.qty, damaged: !!l.damaged }
     })
 
     const total = prepared.reduce((s, l) => s + l.amount, 0)
@@ -111,13 +114,13 @@ export function postSaleReturn(db: DB, actor: Actor, input: SaleReturnInput): Re
         .run(returnNo, ts, input.saleId ?? null, partyId, total, refunded, accountId, input.reason ?? null, actor.userId).lastInsertRowid,
     )
     for (const l of prepared) {
-      db.prepare("INSERT INTO sale_return_lines(return_id, sale_line_id, variant_id, qty, amount, unit_cost, damaged) VALUES (?,?,?,?,?,?,?)").run(
-        returnId, l.saleLineId, l.variantId, l.qty, l.amount, l.unitCost, l.damaged ? 1 : 0,
+      db.prepare("INSERT INTO sale_return_lines(return_id, sale_line_id, variant_id, qty, amount, unit_cost, cost_total, damaged) VALUES (?,?,?,?,?,?,?,?)").run(
+        returnId, l.saleLineId, l.variantId, l.qty, l.amount, Math.round(l.costTotal / l.qty), l.costTotal, l.damaged ? 1 : 0,
       )
-      postMovement(db, { variantId: l.variantId, qtyDelta: l.qty, unitCost: l.unitCost, type: "sale_return", sourceType: "sale_return", sourceId: returnId, note: saleNo || "Return without invoice", userId: actor.userId, ts })
+      postMovement(db, { variantId: l.variantId, qtyDelta: l.qty, value: l.costTotal, type: "sale_return", sourceType: "sale_return", sourceId: returnId, note: saleNo || "Return without invoice", userId: actor.userId, ts })
       if (l.damaged) {
         // Booked back in, then written off, so the stock history shows exactly what happened.
-        postMovement(db, { variantId: l.variantId, qtyDelta: -l.qty, type: "damage", sourceType: "sale_return", sourceId: returnId, note: "Damaged on return", userId: actor.userId, ts, allowNegative: true })
+        postMovement(db, { variantId: l.variantId, qtyDelta: -l.qty, type: "damage", value: l.costTotal, sourceType: "sale_return", sourceId: returnId, note: "Damaged on return", userId: actor.userId, ts, allowNegative: true })
       }
     }
     addLedgerEntry(db, { ts, partyKind: "customer", partyId, credit: total, kind: "sale_return", sourceType: "sale_return", sourceId: returnId, description: `Return ${returnNo}${saleNo ? ` (${saleNo})` : ""}`, userId: actor.userId })
@@ -152,15 +155,15 @@ export function postPurchaseReturn(db: DB, actor: Actor, input: PurchaseReturnIn
 
     const prepared = input.lines.map((l) => {
       if (!Number.isInteger(l.qty) || l.qty <= 0) throw new AppError("VALIDATION", "Return quantity must be a whole number greater than zero")
-      const pl = db.prepare("SELECT id, variant_id, qty, line_total FROM purchase_lines WHERE id = ? AND purchase_id = ?").get(l.purchaseLineId, p.id) as
-        | { id: number; variant_id: number; qty: number; line_total: number }
+      const pl = db.prepare("SELECT id, variant_id, qty, line_total, batch_id FROM purchase_lines WHERE id = ? AND purchase_id = ?").get(l.purchaseLineId, p.id) as
+        | { id: number; variant_id: number; qty: number; line_total: number; batch_id: number | null }
         | undefined
       if (!pl) throw new AppError("NOT_FOUND", "Purchase line not found")
       const done = db.prepare("SELECT COALESCE(SUM(qty),0) q, COALESCE(SUM(amount),0) a FROM purchase_return_lines WHERE purchase_line_id = ?").get(pl.id) as { q: number; a: number }
       if (l.qty > pl.qty - done.q) throw new AppError("VALIDATION", `Only ${pl.qty - done.q} can still be returned for this item`)
       const remaining = pl.line_total - done.a
       const amount = l.qty === pl.qty - done.q ? remaining : Math.min(Math.round((pl.line_total * l.qty) / pl.qty), remaining)
-      return { purchaseLineId: pl.id, variantId: pl.variant_id, qty: l.qty, amount }
+      return { purchaseLineId: pl.id, variantId: pl.variant_id, qty: l.qty, amount, batchId: pl.batch_id }
     })
     const total = prepared.reduce((s, l) => s + l.amount, 0)
     if (total <= 0) throw new AppError("VALIDATION", "The return value must be greater than zero")
@@ -183,7 +186,7 @@ export function postPurchaseReturn(db: DB, actor: Actor, input: PurchaseReturnIn
     )
     for (const l of prepared) {
       // Fails with INSUFFICIENT_STOCK if the goods were already sold; the whole return then rolls back.
-      postMovement(db, { variantId: l.variantId, qtyDelta: -l.qty, type: "purchase_return", sourceType: "purchase_return", sourceId: returnId, note: p.purchase_no, userId: actor.userId, ts })
+      postMovement(db, { variantId: l.variantId, qtyDelta: -l.qty, batchId: l.batchId, type: "purchase_return", sourceType: "purchase_return", sourceId: returnId, note: p.purchase_no, userId: actor.userId, ts })
       db.prepare("INSERT INTO purchase_return_lines(return_id, purchase_line_id, variant_id, qty, amount) VALUES (?,?,?,?,?)").run(returnId, l.purchaseLineId, l.variantId, l.qty, l.amount)
     }
     addLedgerEntry(db, { ts, partyKind: "supplier", partyId: p.supplier_id, debit: total, kind: "purchase_return", sourceType: "purchase_return", sourceId: returnId, description: `Return ${returnNo} (${p.purchase_no})`, userId: actor.userId })

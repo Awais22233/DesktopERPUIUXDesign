@@ -148,9 +148,9 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
     )
 
     for (const l of lines) {
-      let unitCost = 0
+      let costTotal = 0
       for (const chunk of allocateBatches(db, l.variantId, l.qty)) {
-        unitCost = postMovement(db, {
+        costTotal += postMovement(db, {
           variantId: l.variantId,
           qtyDelta: -chunk.qty,
           type: "sale",
@@ -160,12 +160,12 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
           userId: actor.userId,
           ts,
           allowNegative: getSetting(db, "stock.allow_negative", "off") === "on",
-        }).unitCost
+        }).value
       }
       db.prepare(
-        `INSERT INTO sale_lines(sale_id, variant_id, qty, rate, discount, line_total, unit_cost, size_label)
-         VALUES (?,?,?,?,?,?,?,?)`,
-      ).run(saleId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, unitCost, l.sizeLabel)
+        `INSERT INTO sale_lines(sale_id, variant_id, qty, rate, discount, line_total, unit_cost, cost_total, size_label)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+      ).run(saleId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, Math.round(costTotal / l.qty), costTotal, l.sizeLabel)
     }
 
     // Sale and payment are separate facts: the sale is a debit, each payment a credit.
@@ -200,9 +200,9 @@ export function voidSale(db: DB, actor: Actor, saleId: number, reason: string): 
     const ts = new Date().toISOString()
 
     // Reverse exactly what was taken out (same quantities, batches and costs).
-    const moved = db.prepare("SELECT variant_id, batch_id, -qty_delta AS qty, unit_cost FROM stock_movements WHERE source_type = 'sale' AND source_id = ? AND type = 'sale'").all(saleId) as { variant_id: number; batch_id: number | null; qty: number; unit_cost: number }[]
+    const moved = db.prepare("SELECT variant_id, batch_id, -qty_delta AS qty, unit_cost, -value AS value FROM stock_movements WHERE source_type = 'sale' AND source_id = ? AND type = 'sale'").all(saleId) as { variant_id: number; batch_id: number | null; qty: number; unit_cost: number; value: number }[]
     for (const m of moved) {
-      postMovement(db, { variantId: m.variant_id, qtyDelta: m.qty, unitCost: m.unit_cost, batchId: m.batch_id, type: "sale_void", sourceType: "sale", sourceId: saleId, note: reason, userId: actor.userId, ts })
+      postMovement(db, { variantId: m.variant_id, qtyDelta: m.qty, unitCost: m.unit_cost, value: m.value, batchId: m.batch_id, type: "sale_void", sourceType: "sale", sourceId: saleId, note: reason, userId: actor.userId, ts })
     }
     addLedgerEntry(db, { ts, partyKind: "customer", partyId: sale.party_id, credit: sale.total, kind: "sale_void", sourceType: "sale", sourceId: saleId, description: `Void ${sale.invoice_no}`, userId: actor.userId })
     if (sale.paid > 0) {

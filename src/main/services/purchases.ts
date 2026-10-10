@@ -76,15 +76,24 @@ export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): Purcha
         .run(purchaseNo, input.supplierInvoiceNo ?? null, ts, supplier.id, subtotal, discount, total, paid, input.notes ?? null, actor.userId).lastInsertRowid,
     )
 
+    // The invoice-level discount is shared across lines (exactly, to the paisa) so stock is valued at what was really paid.
+    const lineSum = lines.reduce((s, l) => s + l.lineTotal, 0)
+    let cumLine = 0
+    let cumShare = 0
     for (const l of lines) {
+      cumLine += l.lineTotal
+      const cum = lineSum > 0 ? Math.round((extra * cumLine) / lineSum) : 0
+      const share = cum - cumShare
+      cumShare = cum
+      const value = Math.max(0, l.lineTotal - share)
       db.prepare(
         `INSERT INTO purchase_lines(purchase_id, variant_id, qty, rate, discount, line_total, batch_id) VALUES (?,?,?,?,?,?,?)`,
       ).run(purchaseId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, l.batchId ?? null)
-      // Landed unit cost = net line value / quantity, rounded to the nearest paisa.
       postMovement(db, {
         variantId: l.variantId,
         qtyDelta: l.qty,
-        unitCost: Math.round(l.lineTotal / l.qty),
+        unitCost: Math.round(value / l.qty),
+        value,
         type: "purchase",
         sourceType: "purchase",
         sourceId: purchaseId,
@@ -122,10 +131,10 @@ export function voidPurchase(db: DB, actor: Actor, purchaseId: number, reason: s
     }
     const ts = new Date().toISOString()
 
-    const lines = db.prepare("SELECT variant_id, qty FROM purchase_lines WHERE purchase_id = ?").all(purchaseId) as { variant_id: number; qty: number }[]
+    const lines = db.prepare("SELECT variant_id, qty, batch_id FROM purchase_lines WHERE purchase_id = ?").all(purchaseId) as { variant_id: number; qty: number; batch_id: number | null }[]
     for (const l of lines) {
       // Fails with INSUFFICIENT_STOCK if the goods were already sold; the whole void then rolls back.
-      postMovement(db, { variantId: l.variant_id, qtyDelta: -l.qty, type: "purchase_void", sourceType: "purchase", sourceId: purchaseId, note: reason, userId: actor.userId, ts })
+      postMovement(db, { variantId: l.variant_id, qtyDelta: -l.qty, batchId: l.batch_id, type: "purchase_void", sourceType: "purchase", sourceId: purchaseId, note: reason, userId: actor.userId, ts })
     }
     addLedgerEntry(db, { ts, partyKind: "supplier", partyId: p.supplier_id, debit: p.total, kind: "purchase_void", sourceType: "purchase", sourceId: purchaseId, description: `Void ${p.purchase_no}`, userId: actor.userId })
     if (p.paid > 0) {

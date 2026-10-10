@@ -110,7 +110,7 @@ export function buildDashboard(db: DB, today: string): DashboardData {
     margin: todayProfit.netSales > 0 ? Math.round((todayProfit.grossProfit / todayProfit.netSales) * 1000) / 10 : null,
     receivables: r(one("SELECT COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) v FROM v_customer_balance")),
     payables: r(one("SELECT COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) v FROM v_supplier_balance")),
-    stockValue: r(one("SELECT COALESCE(SUM(qty * avg_cost),0) v FROM stock_levels WHERE qty > 0")),
+    stockValue: r(one("SELECT COALESCE(SUM(value),0) v FROM stock_levels WHERE qty > 0")),
     receivedCash: r(receivedCash),
     receivedBank: r(receivedBank),
     salesReceived: r(salesReceived),

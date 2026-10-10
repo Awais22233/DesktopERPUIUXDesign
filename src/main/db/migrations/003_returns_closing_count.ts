@@ -24,6 +24,7 @@ CREATE TABLE sale_return_lines (
   qty          INTEGER NOT NULL CHECK (qty > 0),
   amount       INTEGER NOT NULL CHECK (amount >= 0),   -- value credited to the party for this line
   unit_cost    INTEGER NOT NULL CHECK (unit_cost >= 0),
+  cost_total   INTEGER NOT NULL DEFAULT 0 CHECK (cost_total >= 0), -- exact cost of the goods that came back
   damaged      INTEGER NOT NULL DEFAULT 0 CHECK (damaged IN (0,1))
 ) STRICT;
 CREATE INDEX sale_return_lines_return ON sale_return_lines(return_id);

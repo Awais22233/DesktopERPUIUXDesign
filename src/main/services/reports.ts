@@ -224,6 +224,8 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
         { name: "Cost of goods sold", amount: -r(p.cogs) },
         { name: "Gross profit", amount: r(p.grossProfit) },
         { name: "Operating expenses", amount: -r(p.expenses) },
+        { name: "Stock write-offs (damage, shrinkage, count differences)", amount: -r(p.writeOffs) },
+        { name: "Purchase price differences on returns / cancellations", amount: r(p.priceDifferences) },
         { name: "Net profit", amount: r(p.netProfit) },
       ]
       return result([text("name", "Particulars"), money("amount", "Amount (PKR)")], rows, [{ label: "Net sales", value: r(p.netSales) }, { label: "Gross profit", value: r(p.grossProfit), tone: "green" }, { label: "Net profit", value: r(p.netProfit), tone: p.netProfit >= 0 ? "green" : "red" }], "Cost of goods sold uses the weighted-average cost recorded at the time of each sale. Transfers, recoveries and supplier payments are not part of profit.")
@@ -239,11 +241,11 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
         const next = monthly ? new Date(Date.UTC(+cur.slice(0, 4), +cur.slice(5, 7), 1)).toISOString().slice(0, 10) : new Date(new Date(`${cur}T00:00:00Z`).getTime() + DAY).toISOString().slice(0, 10)
         const stop = next > end ? new Date(new Date(`${end}T00:00:00Z`).getTime() + DAY).toISOString().slice(0, 10) : next
         const p = profitSummary(db, dayRange(db, cur).from, dayRange(db, stop === next ? new Date(new Date(`${next}T00:00:00Z`).getTime() - DAY).toISOString().slice(0, 10) : end).to)
-        days.push({ period: monthly ? cur.slice(0, 7) : cur, sales: r(p.netSales), cogs: r(p.cogs), gross: r(p.grossProfit), expenses: r(p.expenses), net: r(p.netProfit) })
+        days.push({ period: monthly ? cur.slice(0, 7) : cur, sales: r(p.netSales), cogs: r(p.cogs), gross: r(p.grossProfit), expenses: r(p.expenses + p.writeOffs - p.priceDifferences), net: r(p.netProfit) })
         cur = next
       }
       const sum = (k: string) => days.reduce((s, x) => s + (x[k] as number), 0)
-      return result([text("period", monthly ? "Month" : "Date"), money("sales", "Net sales"), money("cogs", "Cost of goods"), money("gross", "Gross profit"), money("expenses", "Expenses"), money("net", "Net profit")], days, [{ label: "Net sales", value: sum("sales") }, { label: "Gross profit", value: sum("gross"), tone: "green" }, { label: "Net profit", value: sum("net"), tone: sum("net") >= 0 ? "green" : "red" }])
+      return result([text("period", monthly ? "Month" : "Date"), money("sales", "Net sales"), money("cogs", "Cost of goods"), money("gross", "Gross profit"), money("expenses", "Expenses & losses"), money("net", "Net profit")], days, [{ label: "Net sales", value: sum("sales") }, { label: "Gross profit", value: sum("gross"), tone: "green" }, { label: "Net profit", value: sum("net"), tone: sum("net") >= 0 ? "green" : "red" }])
     }
     case "Company Profitability":
     case "Category Profitability":
@@ -251,10 +253,10 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
     case "City Profitability": {
       const key = q.name === "Company Profitability" ? "co.name" : q.name === "Category Profitability" ? "COALESCE(cat.name,'No category')" : q.name === "Customer Profitability" ? "p.name" : "COALESCE(ci.name,'No city')"
       const label = q.name.replace(" Profitability", "")
-      const rows = all(`SELECT ${key} k, SUM(l.line_total) sales, SUM(l.qty*l.unit_cost) cogs
+      const rows = all(`SELECT ${key} k, SUM(l.line_total) sales, SUM(l.cost_total) cogs
         FROM sale_lines l JOIN sales s ON s.id=l.sale_id JOIN parties p ON p.id=s.party_id LEFT JOIN cities ci ON ci.id=p.city_id
         JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id LEFT JOIN categories cat ON cat.id=i.category_id
-        WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND ${key} LIKE ? GROUP BY ${key} ORDER BY (SUM(l.line_total)-SUM(l.qty*l.unit_cost)) DESC`, from, to, like)
+        WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND ${key} LIKE ? GROUP BY ${key} ORDER BY (SUM(l.line_total)-SUM(l.cost_total)) DESC`, from, to, like)
       return result(
         [text("name", label), money("sales", "Sales"), money("cogs", "Cost of goods"), money("profit", "Gross profit"), { key: "margin", label: "Margin %", kind: "number" }],
         rows.map((x) => ({ name: x.k, sales: r(x.sales), cogs: r(x.cogs), profit: r(x.sales - x.cogs), margin: x.sales > 0 ? Math.round(((x.sales - x.cogs) / x.sales) * 1000) / 10 : 0 })),

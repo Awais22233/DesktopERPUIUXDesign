@@ -73,6 +73,7 @@ CREATE TABLE stock_levels (
   warehouse_id INTEGER NOT NULL DEFAULT 1 REFERENCES warehouses(id),
   qty          INTEGER NOT NULL DEFAULT 0,
   avg_cost     INTEGER NOT NULL DEFAULT 0 CHECK (avg_cost >= 0),
+  value        INTEGER NOT NULL DEFAULT 0,               -- exact stock value in minor units (avg_cost is only a display/estimate)
   PRIMARY KEY (variant_id, warehouse_id)
 ) STRICT;
 
@@ -84,6 +85,7 @@ CREATE TABLE stock_movements (
   batch_id     INTEGER REFERENCES batches(id),
   qty_delta    INTEGER NOT NULL CHECK (qty_delta <> 0),
   unit_cost    INTEGER NOT NULL CHECK (unit_cost >= 0),
+  value        INTEGER NOT NULL DEFAULT 0,               -- exact value moved, same sign as qty_delta
   type         TEXT NOT NULL CHECK (type IN (
                  'opening','purchase','sale','sale_return','purchase_return',
                  'sale_void','purchase_void','damage','adjustment_in','adjustment_out')),
@@ -208,7 +210,8 @@ CREATE TABLE sale_lines (
   rate       INTEGER NOT NULL CHECK (rate >= 0),
   discount   INTEGER NOT NULL DEFAULT 0 CHECK (discount >= 0),
   line_total INTEGER NOT NULL CHECK (line_total >= 0),
-  unit_cost  INTEGER NOT NULL CHECK (unit_cost >= 0),   -- cost snapshot for COGS
+  unit_cost  INTEGER NOT NULL CHECK (unit_cost >= 0),   -- cost snapshot for display
+  cost_total INTEGER NOT NULL DEFAULT 0 CHECK (cost_total >= 0), -- exact cost of goods sold for this line
   size_label TEXT,                                      -- label snapshot for printing
   CHECK (line_total = qty * rate - discount)
 ) STRICT;

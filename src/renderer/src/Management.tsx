@@ -4,6 +4,8 @@ import { api } from "./backend"
 import type { BackupInfo } from "@shared/ipc"
 import type { Masters, ReportResult, ReturnRow } from "@shared/models"
 import { useEffect, useRef, useState } from "react"
+import { useDebounced, useRemote } from "./remote"
+import { ProductPicker } from "./Workflows"
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -975,18 +977,12 @@ export function Backup({
 }
 
 export function Returns({
-  sales,
-  purchases,
   returns,
-  products,
   accounts,
   onReturn,
   onExchange,
 }: {
-  sales: Transaction[]
-  purchases: Transaction[]
   returns: ReturnRow[]
-  products: Product[]
   accounts: string[]
   onReturn: (t: Transaction, quantities: Record<string, number>, type: string, opts: { settlement: "balance" | "cash"; account?: string; refund?: number; damaged?: boolean; reason?: string }) => Promise<boolean>
   onExchange: (t: Transaction, quantities: Record<string, number>, lines: { productId: string; qty: number; rate: number; discount: number }[], paid: number, account: string) => Promise<boolean>
@@ -1006,10 +1002,15 @@ export function Returns({
   const [busy, setBusy] = useState(false)
   const exchange = tab === "Exchange"
   const purchase = tab === "Purchase return"
-  const transactions = (purchase ? purchases : sales).filter((t) => t.status !== "void")
+  // Invoices are found by the engine (number or party), 10 at a time: the shop may hold years of history.
+  const dq = useDebounced(query)
+  const [docPage, setDocPage] = useState(1)
+  const { data: foundDocs, loading: finding } = useRemote("docs:list", { kind: purchase ? "purchase" : "sale", query: dq, status: "completed", page: docPage, pageSize: 10 })
+  const transactions = foundDocs?.rows ?? []
+  const knownProducts = useRef(new Map<string, Product>())
   const reasons = purchase ? ["Quality issue", "Wrong item sent", "Excess quantity", "Other"] : ["Quality issue", "Incorrect item", "Customer changed mind", "Other"]
   const returnTotal = selected?.lines?.reduce((sum, l) => sum + (quantities[l.productId] || 0) * (l.rate - l.discount / l.qty), 0) || 0
-  const priced = newLines.map((l) => ({ ...l, product: products.find((p) => p.id === l.productId) })).filter((l) => l.product)
+  const priced = newLines.map((l) => ({ ...l, product: knownProducts.current.get(l.productId) })).filter((l) => l.product)
   const newTotal = priced.reduce((s, l) => s + l.qty * l.product!.price, 0)
   const difference = newTotal - returnTotal
   const reset = () => {
@@ -1063,10 +1064,11 @@ export function Returns({
       </div>
       <Panel title="Find original transaction" subtitle="Search an invoice number, party or supplier">
         <div className="padded-search">
-          <SearchBox value={query} onChange={setQuery} placeholder="Search invoice or party…" />
+          <SearchBox value={query} onChange={(v) => { setQuery(v); setDocPage(1) }} placeholder="Search invoice or party…" />
         </div>
         <DataTable
-          rows={transactions.filter((s) => `${s.id} ${s.party}`.toLowerCase().includes(query.toLowerCase())).slice(0, 8)}
+          rows={transactions}
+          server={{ total: foundDocs?.total ?? 0, page: docPage, pageSize: 10, onPage: setDocPage, loading: finding }}
           empty="No invoices found."
           onRow={(s) => {
             setSelected(s)
@@ -1126,21 +1128,16 @@ export function Returns({
           {exchange && (
             <div className="modal-body">
               <Field label="Items the customer takes instead">
-                <Select
+                <ProductPicker
                   value=""
-                  onChange={(e) => {
-                    if (!e.target.value) return
-                    setNewLines((n) => (n.some((x) => x.productId === e.target.value) ? n : [...n, { productId: e.target.value, qty: 1 }]))
+                  filter={(p) => p.stock > 0}
+                  onPick={(p) => {
+                    if (!p) return
+                    knownProducts.current.set(p.id, p)
+                    setNewLines((n) => (n.some((x) => x.productId === p.id) ? n : [...n, { productId: p.id, qty: 1 }]))
                     setConfirm(false)
                   }}
-                >
-                  <option value="">Add an item…</option>
-                  {products.filter((p) => p.active && p.stock > 0).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {[p.name, p.size].filter(Boolean).join(" · ")} — {money(p.price)} ({p.stock} in stock)
-                    </option>
-                  ))}
-                </Select>
+                />
               </Field>
               {priced.map((l) => (
                 <div className="summary-row" key={l.productId}>

@@ -42,6 +42,8 @@ export type Product = {
 export type CartItem = { productId: string; name: string; color: string; size: string; qty: number; rate: number; discount: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
 export type Transaction = {
   id: string
+  /** which book the document belongs to (set by the engine) */
+  kind?: "sale" | "purchase"
   party: string
   partyId?: string
   date: string
@@ -117,7 +119,7 @@ export type DashboardData = {
   weekPrev: number
   month: { label: string; value: number }[]
   monthPrev: number
-  inventory: { items: number; units: number; value: number; low: number; out: number }
+  inventory: { items: number; units: number; value: number; low: number; out: number; reorder: number }
   lowStock: Product[]
   recentSales: Transaction[]
   recentPurchases: Transaction[]

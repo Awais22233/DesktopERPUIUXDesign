@@ -79,7 +79,7 @@ function productWhere(q: ProductQuery): { where: string; args: unknown[] } {
   if (q.activeOnly) parts.push("v.active = 1")
   switch (q.status) {
     case "inactive": parts.push("v.active = 0"); break
-    case "in": parts.push("COALESCE(sl.qty,0) > 0"); break
+    case "in": parts.push("COALESCE(sl.qty,0) > 0 AND COALESCE(sl.qty,0) > v.min_stock"); break
     case "out": parts.push("COALESCE(sl.qty,0) <= 0"); break
     case "low": parts.push("COALESCE(sl.qty,0) > 0 AND COALESCE(sl.qty,0) <= v.min_stock"); break
   }
@@ -119,6 +119,8 @@ export interface InventorySummary {
   value: number
   low: number
   out: number
+  /** Active items at or below their minimum stock (includes out of stock). */
+  reorder: number
 }
 export function inventorySummary(db: DB): InventorySummary {
   const row = db
@@ -126,11 +128,12 @@ export function inventorySummary(db: DB): InventorySummary {
       `SELECT COUNT(*) AS items, COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 THEN sl.qty ELSE 0 END),0) AS units,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 THEN sl.value ELSE 0 END),0) AS value,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 AND sl.qty <= v.min_stock THEN 1 ELSE 0 END),0) AS low,
-              COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) <= 0 THEN 1 ELSE 0 END),0) AS out
+              COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) <= 0 THEN 1 ELSE 0 END),0) AS out,
+              COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) <= v.min_stock THEN 1 ELSE 0 END),0) AS reorder
        FROM variants v LEFT JOIN stock_levels sl ON sl.variant_id = v.id AND sl.warehouse_id = 1 WHERE v.active = 1`,
     )
-    .get() as { items: number; units: number; value: number; low: number; out: number }
-  return { items: row.items, units: row.units, value: r(row.value), low: row.low, out: row.out }
+    .get() as { items: number; units: number; value: number; low: number; out: number; reorder: number }
+  return { items: row.items, units: row.units, value: r(row.value), low: row.low, out: row.out, reorder: row.reorder }
 }
 
 // ---------------------------------------------------------------- documents
@@ -144,6 +147,8 @@ export interface DocQuery {
   no?: string
   /** Only documents of this party (display id). */
   partyId?: string
+  /** Payment status filter used by the history screens. */
+  payment?: "paid" | "partial" | "unpaid"
 }
 export interface DocPage extends Page<Transaction> {
   summary: { count: number; total: number; paid: number }
@@ -195,6 +200,7 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
       supplierInvoice: x.sinv ?? undefined,
       invoiceDiscount: Math.max(0, Math.round((r(x.discount) - lineDisc) * 100) / 100),
       status: x.status,
+      kind,
       user: x.usr ?? "",
     } as Transaction
   })
@@ -208,6 +214,9 @@ export function listDocs(db: DB, q: DocQuery): DocPage {
   const noCol = sale ? "s.invoice_no" : "s.purchase_no"
   if (q.no) { parts.push(`${noCol} = ?`); args.push(q.no) }
   if (q.status && q.status !== "all") { parts.push("s.status = ?"); args.push(q.status) }
+  if (q.payment === "paid") parts.push("s.paid >= s.total")
+  if (q.payment === "partial") parts.push("s.paid > 0 AND s.paid < s.total")
+  if (q.payment === "unpaid") parts.push("s.paid = 0")
   if (q.partyId) { parts.push(sale ? "s.party_id = ?" : "s.supplier_id = ?"); args.push(idNumber(q.partyId)) }
   for (const t of tokens(q.query)) {
     const like = `%${esc(t)}%`

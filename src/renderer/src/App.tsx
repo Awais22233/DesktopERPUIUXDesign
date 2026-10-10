@@ -77,6 +77,8 @@ import { money, today, setToday, L, type Collection, type Party, type Product, t
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
 import { useSession } from "./Auth"
+import { bumpData, useDebounced, useRemote } from "./remote"
+import type { Product as CountProduct } from "@shared/models"
 
 type Store = Snapshot
 const emptyStore: Store = {
@@ -85,19 +87,15 @@ const emptyStore: Store = {
   walkInId: "",
   parties: [],
   suppliers: [],
-  products: [],
-  sales: [],
-  purchases: [],
   collections: [],
   expenses: [],
-  movements: [],
   accounts: {},
   entries: [],
   users: [],
   audits: [],
   returns: [],
   closings: [],
-  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, expiring: [], cities: [] },
+  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [] },
   masters: { accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
 }
 const navGroups: {
@@ -140,6 +138,63 @@ const navGroups: {
 ]
 const pageFlags: Record<string, FlagKey> = { Recovery: "recovery" }
 
+/**
+ * The count sheet for a physical stock count. It shows one page of the catalogue at a time, searchable,
+ * and remembers every quantity typed on any page: the fields are submitted with the form as count:<id>.
+ */
+function CountSheet() {
+  const [q, setQ] = useState("")
+  const dq = useDebounced(q)
+  const [pg, setPg] = useState(1)
+  const [typed, setTyped] = useState<Record<string, string>>({})
+  const names = useRef(new Map<string, string>())
+  const { data, loading } = useRemote("products:list", { query: dq, activeOnly: true, page: pg, pageSize: 15 })
+  const rows: CountProduct[] = data?.rows ?? []
+  for (const p of rows) names.current.set(p.id, p.name)
+  const entered = Object.entries(typed).filter(([, v]) => v.trim() !== "")
+  return (
+    <>
+      <div className="padded-search">
+        <SearchBox
+          value={q}
+          onChange={(v) => {
+            setQ(v)
+            setPg(1)
+          }}
+          placeholder="Find an item to count…"
+        />
+      </div>
+      {entered.map(([id, v]) => (
+        <input key={id} type="hidden" name={`count:${id}`} value={v} />
+      ))}
+      <DataTable
+        rows={rows}
+        server={{ total: data?.total ?? 0, page: pg, pageSize: 15, onPage: setPg, loading }}
+        columns={[
+          { key: "name", label: "Product" },
+          { key: "size", label: L.size },
+          { key: "stock", label: "Recorded qty", right: true },
+          {
+            key: "count",
+            label: "Counted qty",
+            render: (p) => (
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={typed[p.id] ?? ""}
+                onChange={(e) => setTyped({ ...typed, [p.id]: e.target.value })}
+                aria-label={`Counted quantity for ${p.name}`}
+              />
+            ),
+          },
+        ]}
+      />
+      <p className="muted">{entered.length} item{entered.length === 1 ? "" : "s"} counted so far. Items you leave blank are not changed.</p>
+    </>
+  )
+}
+
 export default function App() {
   const { isEnabled } = useConfig()
   const { business } = useBusiness()
@@ -161,6 +216,19 @@ export default function App() {
   const [role, setRole] = useState("Sales User")
   const [accountTab, setAccountTab] = useState("Overview")
   const searchRef = useRef<HTMLInputElement>(null)
+  // Big lists are paged by the engine: this screen only ever holds the page it is showing.
+  const [pageNo, setPageNo] = useState(1)
+  const dQuery = useDebounced(query)
+  const dGlobal = useDebounced(globalSearch.trim())
+  const globalOn = dGlobal.length > 0
+  const gProducts = useRemote("products:list", { query: dGlobal, pageSize: 3 }, globalOn)
+  const gSales = useRemote("docs:list", { kind: "sale", query: dGlobal, pageSize: 3 }, globalOn)
+  const gPurchases = useRemote("docs:list", { kind: "purchase", query: dGlobal, pageSize: 3 }, globalOn)
+  const invStatus = filter === "Low stock" ? "low" : filter === "Out of stock" ? "out" : filter === "In stock" ? "in" : "all"
+  const inventory = useRemote("products:list", { query: dQuery, status: invStatus, page: pageNo, pageSize: 25 }, page === "Inventory")
+  const historyKind = page === "Purchases" ? "purchase" : "sale"
+  const historyPay = filter === "Paid" ? "paid" : filter === "Partial" ? "partial" : filter === "Unpaid" ? "unpaid" : undefined
+  const history = useRemote("docs:list", { kind: historyKind, query: dQuery, payment: historyPay, page: pageNo, pageSize: 25 }, page === "Sales History" || page === "Purchases")
   const notify = useCallback((message: string) => setToast(message), [])
   const closeToast = useCallback(() => setToast(""), [])
   const closeModal = useCallback(() => setModal(null), [])
@@ -175,6 +243,7 @@ export default function App() {
       if (next === "Reports") setReport("")
     }
     setQuery("")
+    setPageNo(1)
     setFilter("All statuses")
     setGlobalSearch("")
     setModal(null)
@@ -199,6 +268,7 @@ export default function App() {
       const snap = await api("snapshot:get")
       setToday(snap.today)
       setStore(snap)
+      bumpData()
     } catch (e) {
       notify((e as Error).message)
     } finally {
@@ -236,7 +306,7 @@ export default function App() {
     if (!res) return false
     const warning = (res as { warnings?: string[] }).warnings?.[0]
     notify(warning ?? (purchase ? `Purchase ${res.id} saved.` : `Sale ${res.id} saved.`))
-    if (print) open("invoice", { ...t, id: res.id, user: session.user.name })
+    if (print) open("invoice", { ...t, id: res.id, kind: purchase ? "purchase" : "sale", user: session.user.name })
     return true
   }
 
@@ -352,26 +422,12 @@ export default function App() {
       p.name.toLowerCase().includes(globalSearch.toLowerCase()) ||
       p.id.toLowerCase().includes(globalSearch.toLowerCase()),
   )
-  const matchedProducts = store.products.filter((p) =>
-    `${p.name} ${p.id} ${p.article}`
-      .toLowerCase()
-      .includes(globalSearch.toLowerCase()),
-  )
-  const matchedInvoices = [...store.sales, ...store.purchases].filter((s) =>
-    s.id.toLowerCase().includes(globalSearch.toLowerCase()),
-  )
+  const matchedProducts = globalOn ? (gProducts.data?.rows ?? []) : []
+  const matchedInvoices = globalOn ? [...(gSales.data?.rows ?? []), ...(gPurchases.data?.rows ?? [])] : []
   const title = page === "POS / Sales" ? "Sales workspace" : page
   function historyPage(purchase: boolean) {
-    const rows = (purchase ? store.purchases : store.sales).filter(
-      (s) =>
-        `${s.id} ${s.party}`.toLowerCase().includes(query.toLowerCase()) &&
-        (filter === "All statuses" ||
-          (filter === "Paid"
-            ? s.paid >= s.total
-            : filter === "Partial"
-              ? s.paid > 0 && s.paid < s.total
-              : s.paid === 0)),
-    )
+    const rows = history.data?.rows ?? []
+    const sum = history.data?.summary ?? { count: 0, total: 0, paid: 0 }
     return (
       <>
         <PageHeading
@@ -394,16 +450,16 @@ export default function App() {
         <div className="summary-grid three">
           <Summary
             label={purchase ? "Total purchases" : "Total sales"}
-            value={money(rows.reduce((s, r) => s + r.total, 0))}
+            value={money(sum.total)}
           />
           <Summary
             label="Total paid"
-            value={money(rows.reduce((s, r) => s + r.paid, 0))}
+            value={money(sum.paid)}
             tone="green"
           />
           <Summary
             label={purchase ? "Outstanding payable" : "Outstanding receivable"}
-            value={money(rows.reduce((s, r) => s + r.total - r.paid, 0))}
+            value={money(sum.total - sum.paid)}
             tone="red"
           />
         </div>
@@ -411,12 +467,18 @@ export default function App() {
           <div className="table-toolbar">
             <SearchBox
               value={query}
-              onChange={setQuery}
+              onChange={(v) => {
+                setQuery(v)
+                setPageNo(1)
+              }}
               placeholder="Search invoice or party…"
             />
             <Select
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => {
+                setFilter(e.target.value)
+                setPageNo(1)
+              }}
               aria-label="Payment status"
             >
               <option>All statuses</option>
@@ -426,7 +488,7 @@ export default function App() {
             </Select>
           </div>
           <DataTable
-            pagination
+            server={{ total: history.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: history.loading }}
             rows={rows}
             onRow={(r) => open("invoice", r)}
             columns={[
@@ -626,18 +688,8 @@ export default function App() {
     )
   }
   function inventoryPage() {
-    const rows = store.products.filter(
-      (p) =>
-        `${p.name} ${p.company} ${p.category} ${p.article} ${p.color} ${p.id} ${p.sku ?? ""} ${p.barcode ?? ""}`
-          .toLowerCase()
-          .includes(query.toLowerCase()) &&
-        (filter === "All statuses" ||
-          (filter === "Low stock"
-            ? p.stock > 0 && p.stock <= p.minStock
-            : filter === "Out of stock"
-              ? p.stock === 0
-              : p.stock > p.minStock)),
-    )
+    const rows = inventory.data?.rows ?? []
+    const sum = inventory.data?.summary ?? { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }
     return (
       <>
         <PageHeading
@@ -661,24 +713,20 @@ export default function App() {
         <div className="summary-grid four">
           <Summary
             label="Total stock value"
-            value={money(
-              store.products.reduce((s, p) => s + p.stock * p.cost, 0),
-            )}
+            value={money(sum.value)}
           />
           <Summary
             label={`Total available ${L.units}`}
-            value={String(store.products.reduce((s, p) => s + p.stock, 0))}
+            value={sum.units.toLocaleString()}
           />
           <Summary
             label="Low stock items"
-            value={String(
-              store.products.filter((p) => p.stock > 0 && p.stock <= p.minStock).length,
-            )}
+            value={sum.low.toLocaleString()}
             tone="amber"
           />
           <Summary
             label="Out of stock"
-            value={String(store.products.filter((p) => !p.stock).length)}
+            value={sum.out.toLocaleString()}
             tone="red"
           />
         </div>
@@ -686,13 +734,19 @@ export default function App() {
           <div className="table-toolbar">
             <SearchBox
               value={query}
-              onChange={setQuery}
+              onChange={(v) => {
+                setQuery(v)
+                setPageNo(1)
+              }}
               placeholder="Search product, company, SKU or barcode…"
             />
             <Select
               aria-label="Stock status"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => {
+                setFilter(e.target.value)
+                setPageNo(1)
+              }}
             >
               <option>All statuses</option>
               <option>In stock</option>
@@ -702,7 +756,7 @@ export default function App() {
           </div>
           <DataTable
             rows={rows}
-            pagination
+            server={{ total: inventory.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: inventory.loading }}
             onRow={(p) => open("stock", p)}
             columns={[
               {
@@ -1290,7 +1344,6 @@ export default function App() {
         return (
           <SalesWorkspace
             parties={store.parties}
-            products={store.products}
             walkInId={store.walkInId}
             accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p)}
@@ -1302,7 +1355,6 @@ export default function App() {
           <SalesWorkspace
             purchase
             parties={store.suppliers}
-            products={store.products}
             accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p, true)}
             onHistory={() => navigate("Purchases")}
@@ -1333,10 +1385,7 @@ export default function App() {
       case "Returns":
         return (
           <Returns
-            sales={store.sales}
-            purchases={store.purchases}
             returns={store.returns}
-            products={store.products}
             accounts={store.masters.accounts.filter((a) => a.active).map((a) => a.name)}
             onReturn={processReturn}
             onExchange={processExchange}
@@ -1404,7 +1453,6 @@ export default function App() {
             parties={
               type === "supplier-payment" ? store.suppliers : store.parties
             }
-            products={store.products}
             masters={store.masters}
             initial={data as Party | Product}
             onClose={closeModal}
@@ -1423,11 +1471,11 @@ export default function App() {
             transaction={type === "invoice" ? (data as Transaction) : undefined}
             collection={type === "receipt" ? (data as Collection) : undefined}
             onClose={closeModal}
-            purchase={!!(data as Transaction | undefined)?.supplierInvoice || store.purchases.some((p) => p.id === (data as Transaction | undefined)?.id)}
-            canVoid={type === "invoice" && session.can((data as Transaction)?.id?.startsWith("PUR") ? "purchase.void" : "sale.void")}
+            purchase={(data as Transaction | undefined)?.kind === "purchase"}
+            canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
             onVoid={async (reason) => {
               const t = data as Transaction
-              const purchase = store.purchases.some((p) => p.id === t.id)
+              const purchase = t.kind === "purchase"
               if (await run(() => api(purchase ? "purchase:void" : "sale:void", { id: t.id, reason }))) {
                 closeModal()
                 notify(`${t.id} cancelled. Stock, balances and cash were reversed.`)
@@ -1468,10 +1516,9 @@ export default function App() {
       return (
         <Modal title="Stock details & movement" wide onClose={closeModal}>
           <StockDetails
-            product={store.products.find((x) => x.id === p.id) || p}
-            movements={store.movements}
+            product={p}
             onAdjust={() => open("adjust", p)}
-            onEdit={session.can("catalog.manage") ? () => open("product", store.products.find((x) => x.id === p.id) || p) : undefined}
+            onEdit={session.can("catalog.manage") ? () => open("product", p) : undefined}
           />
         </Modal>
       )
@@ -1588,15 +1635,7 @@ export default function App() {
             }}
           >
             <div className="modal-body">
-              <DataTable
-                rows={store.products.filter((p) => p.active)}
-                columns={[
-                  { key: "name", label: "Product" },
-                  { key: "size", label: L.size },
-                  { key: "stock", label: "Recorded qty", right: true },
-                  { key: "count", label: "Counted qty", render: (p) => <Input name={`count:${p.id}`} type="number" min="0" step="1" aria-label={`Counted quantity for ${p.name}`} /> },
-                ]}
-              />
+              <CountSheet />
               <Field label="Notes">
                 <Textarea name="notes" rows={2} placeholder="e.g. Monthly count" />
               </Field>
@@ -1672,7 +1711,7 @@ export default function App() {
             <Package size={20} />
             <div>
               <strong>
-                {store.products.filter((p) => p.stock < 10).length} items need
+                {store.dashboard.inventory.reorder.toLocaleString()} items need
                 restocking
               </strong>
               <p>Check low and out-of-stock products.</p>
@@ -1685,8 +1724,12 @@ export default function App() {
           <div className="notification-item">
             <Wallet size={20} />
             <div>
-              <strong>2 parties have overdue balances</strong>
-              <p>Follow up with Al-Madina Fabrics and Hassan Cloth House.</p>
+              <strong>
+                {store.parties.filter((x) => x.balance > 0).length} parties have an outstanding balance
+              </strong>
+              <p>
+                {store.parties.filter((x) => x.balance > 0).sort((x, y) => y.balance - x.balance).slice(0, 2).map((x) => x.name).join(" and ") || "Nobody owes you anything right now."}
+              </p>
               {isEnabled("recovery") && (
                 <Button onClick={() => navigate("Recovery")}>
                   Open recovery

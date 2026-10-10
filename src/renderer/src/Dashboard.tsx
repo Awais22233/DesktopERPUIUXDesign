@@ -42,12 +42,9 @@ import {
 } from "./data"
 
 type Props = {
-  sales: Transaction[]
-  purchases: Transaction[]
   collections: Collection[]
   expenses: Expense[]
   parties: Party[]
-  products: Product[]
   dashboard: DashboardData
   userName: string
   navigate: (page: string) => void
@@ -60,12 +57,9 @@ function axisLabel(v: number, max: number): string {
 }
 
 export default function Dashboard({
-  sales,
-  purchases,
   collections,
   expenses,
   parties,
-  products,
   dashboard,
   userName,
   navigate,
@@ -105,12 +99,12 @@ export default function Dashboard({
     { title: "Today's purchases", amount: d.todayPurchases, icon: ShoppingBag, delta: "", detail: `${d.todayPurchaseCount} purchase invoice${d.todayPurchaseCount === 1 ? "" : "s"}`, tone: "blue" },
     { title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" },
   ]
-  const low = products.filter((p) => p.active && p.stock <= p.minStock)
+  const low = d.lowStock
   const rows =
     activity === "Recent sales"
-      ? sales
+      ? d.recentSales
       : activity === "Recent purchases"
-        ? purchases
+        ? d.recentPurchases
         : collections.map((c) => ({
             id: c.id,
             party: c.party,
@@ -546,7 +540,7 @@ export default function Dashboard({
           />
           <div className="panel-note">
             <Package size={13} />
-            {low.length} products are below their minimum stock level
+            {d.inventory.reorder.toLocaleString()} products are at or below their minimum stock level
           </div>
         </Panel>
       </div>
@@ -617,7 +611,7 @@ export default function Dashboard({
         />
         <DataTable
           rows={rows.slice(0, 5)}
-          onRow={(r) => open("invoice", r)}
+          onRow={(r) => (activity === "Recent recovery" ? open("receipt", collections.find((c) => c.id === r.id)) : open("invoice", r))}
           columns={[
             {
               key: "id",

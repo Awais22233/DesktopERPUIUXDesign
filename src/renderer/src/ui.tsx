@@ -220,19 +220,25 @@ export function DataTable<T extends object>({
   onRow,
   empty = "No records found",
   pagination = false,
+  server,
 }: {
   columns: Column<T>[]
   rows: T[]
   onRow?: (row: T) => void
   empty?: string
   pagination?: boolean
+  /** The rows are one page held by the engine: paging, totals and loading come from here. */
+  server?: { total: number; page: number; pageSize: number; onPage: (page: number) => void; loading?: boolean }
 }) {
   const [sort, setSort] = useState<{
     key: string
     asc: boolean
   } | null>(null)
-  const [page, setPage] = useState(1)
+  const [localPage, setPage] = useState(1)
   useEffect(() => setPage(1), [rows.length])
+  const page = server ? server.page : localPage
+  const pageSize = server ? server.pageSize : 8
+  const totalRows = server ? server.total : rows.length
   const sorted = [...rows].sort((a, b) => {
     if (!sort) return 0
     const av = (a as Record<string, unknown>)[sort.key],
@@ -243,8 +249,9 @@ export function DataTable<T extends object>({
         : String(av).localeCompare(String(bv))) * (sort.asc ? 1 : -1)
     )
   })
-  const pages = Math.max(1, Math.ceil(rows.length / 8))
-  const visible = pagination ? sorted.slice((page - 1) * 8, page * 8) : sorted
+  const pages = Math.max(1, Math.ceil(totalRows / pageSize))
+  const goTo = (n: number) => (server ? server.onPage(n) : setPage(n))
+  const visible = server ? sorted : pagination ? sorted.slice((page - 1) * 8, page * 8) : sorted
   return (
     <div className="table-wrapper">
       <div className="table-scroll">
@@ -300,25 +307,25 @@ export function DataTable<T extends object>({
           </tbody>
         </table>
       </div>
-      {!rows.length && (
+      {!rows.length && !server?.loading && (
         <div className="empty-state">
           <Inbox size={30} />
           <Heading level={3}>{empty}</Heading>
           <p>Try a different search or add your first record.</p>
         </div>
       )}
-      {pagination && (
+      {(pagination || server) && (
         <div className="pagination">
           <span>
-            Showing {rows.length ? (page - 1) * 8 + 1 : 0}–
-            {Math.min(page * 8, rows.length)} of {rows.length} records
+            {server?.loading ? "Loading… " : ""}Showing {rows.length ? (page - 1) * pageSize + 1 : 0}–
+            {Math.min((page - 1) * pageSize + rows.length, totalRows)} of {totalRows.toLocaleString()} records
           </span>
           <div>
             <Button
               className="icon-button"
               aria-label="Previous page"
               disabled={page === 1}
-              onClick={() => setPage(page - 1)}
+              onClick={() => goTo(page - 1)}
             >
               <ChevronLeft size={15} />
             </Button>
@@ -327,7 +334,7 @@ export function DataTable<T extends object>({
               className="icon-button"
               aria-label="Next page"
               disabled={page >= pages}
-              onClick={() => setPage(page + 1)}
+              onClick={() => goTo(page + 1)}
             >
               <ChevronRight size={15} />
             </Button>

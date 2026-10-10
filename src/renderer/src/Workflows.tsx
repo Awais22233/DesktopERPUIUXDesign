@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { useDebounced, useRemote } from "./remote"
 import { BrandMark, useBusiness } from "./business"
 import { useConfig } from "./config"
 import { api } from "./backend"
@@ -51,7 +52,6 @@ import {
 export function SalesWorkspace({
   purchase = false,
   parties,
-  products: allProducts,
   walkInId,
   accounts,
   onSave,
@@ -59,16 +59,20 @@ export function SalesWorkspace({
 }: {
   purchase?: boolean
   parties: Party[]
-  products: Product[]
   walkInId?: string
   accounts: { name: string; type: string }[]
   onSave: (sale: Transaction, print: boolean) => Promise<boolean>
   onHistory: () => void
 }) {
   const { isEnabled } = useConfig()
-  const products = allProducts.filter((p) => p.active)
+  // The catalogue can hold tens of thousands of items, so the picker asks the engine for one page at a time.
+  const known = useRef(new Map<string, Product>())
   const batchOn = purchase && (isEnabled("batch") || isEnabled("expiry"))
   const [query, setQuery] = useState("")
+  const dq = useDebounced(query)
+  const { data: result, loading: searching, error: searchError } = useRemote("products:list", { query: dq, activeOnly: true, pageSize: 24 })
+  const found = result?.rows ?? []
+  for (const p of found) known.current.set(p.id, p)
   const [party, setParty] = useState("")
   const [cart, setCart] = useState<CartItem[]>([])
   const [method, setMethod] = useState("Cash")
@@ -84,6 +88,7 @@ export function SalesWorkspace({
     method === "Cash" ? total : method === "Credit" ? 0 : Number(paid || 0)
   const selectedParty = parties.find((p) => p.id === party) ?? (walkInId && party === walkInId ? ({ id: walkInId, name: "Walk-in customer", city: "", phone: "", balance: 0, limit: 0, status: "Clear" } as Party) : undefined)
   function addProduct(p: Product) {
+    known.current.set(p.id, p)
     if (!purchase && p.stock === 0) return
     const existing = cart.find((c) => c.productId === p.id)
     if (existing) update(p.id, "qty", existing.qty + 1)
@@ -110,7 +115,7 @@ export function SalesWorkspace({
     if (!cart.length) return setError("Add at least one product to the invoice.")
     if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > c.qty * c.rate))
       return setError(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
-    if (!purchase && cart.some((c) => c.qty > (products.find((p) => p.id === c.productId)?.stock || 0)))
+    if (!purchase && cart.some((c) => known.current.has(c.productId) && c.qty > known.current.get(c.productId)!.stock))
       return setError("The quantity exceeds available stock. Please adjust the quantity.")
     if (Number(discount) < 0 || Number(discount) > subtotal) return setError("Invoice discount must be between zero and the subtotal.")
     if (received > total || received < 0 || (method === "Partial" && (!received || received >= total)))
@@ -150,11 +155,6 @@ export function SalesWorkspace({
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   })
-  const found = products.filter((p) =>
-    `${p.name} ${p.company} ${p.article} ${p.color} ${p.id} ${p.category} ${p.barcode ?? ""} ${p.sku ?? ""}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  )
   return (
     <>
       <div className="page-heading">
@@ -201,17 +201,24 @@ export function SalesWorkspace({
             )}
             <div
               className="product-search"
-              onKeyDown={(e) => {
+              onKeyDown={async (e) => {
                 if (
                   e.key !== "Enter" ||
                   e.target !== e.currentTarget.querySelector("input")
                 )
                   return
                 e.preventDefault()
-                const product = found.find((p) => p.barcode && p.barcode === query.trim() && (purchase || p.stock > 0)) ?? found.find((p) => purchase || p.stock > 0)
-                if (product) {
-                  addProduct(product)
-                  setQuery("")
+                // A barcode scanner types and presses Enter faster than the search debounce: ask the engine right now.
+                const typed = query.trim()
+                try {
+                  const hit = await api("products:list", { query: typed, activeOnly: true, pageSize: 5 })
+                  const product = hit.rows.find((p) => p.barcode && p.barcode === typed && (purchase || p.stock > 0)) ?? hit.rows.find((p) => purchase || p.stock > 0)
+                  if (product) {
+                    addProduct(product)
+                    setQuery("")
+                  }
+                } catch (err) {
+                  setError((err as Error).message)
                 }
               }}
             >
@@ -252,12 +259,17 @@ export function SalesWorkspace({
                 </Action>
               ))}
             </div>
-            {!found.length && (
+            {!found.length && !searching && (
               <div className="empty-state">
                 <Search size={28} />
-                <Heading level={3}>No matching products</Heading>
-                <p>Try a product name or article number.</p>
+                <Heading level={3}>{searchError ? "Could not load products" : "No matching products"}</Heading>
+                <p>{searchError || "Try a product name or article number."}</p>
               </div>
+            )}
+            {(result?.total ?? 0) > found.length && (
+              <p className="muted" style={{ padding: "8px 4px 0" }}>
+                Showing the first {found.length} of {result!.total.toLocaleString()} items. Type to narrow the list.
+              </p>
             )}
           </Panel>
           <Panel
@@ -523,10 +535,34 @@ function ShoppingIcon() {
   return <FileText size={30} />
 }
 
+/** Search-as-you-type product chooser for forms: asks the engine for one small page, never the whole catalogue. */
+export function ProductPicker({ value, initial, onPick, filter }: { value: string; initial?: Product; onPick: (p: Product | undefined) => void; filter?: (p: Product) => boolean }) {
+  const [q, setQ] = useState("")
+  const dq = useDebounced(q)
+  const { data, loading } = useRemote("products:list", { query: dq, activeOnly: true, pageSize: 20 })
+  const known = useRef(new Map<string, Product>())
+  if (initial?.id) known.current.set(initial.id, initial)
+  const rows = (data?.rows ?? []).filter((p) => !filter || filter(p))
+  for (const p of rows) known.current.set(p.id, p)
+  const options = value && !rows.some((p) => p.id === value) && known.current.has(value) ? [known.current.get(value)!, ...rows] : rows
+  return (
+    <>
+      <SearchBox value={q} onChange={setQ} placeholder="Type a name, article, SKU or barcode…" />
+      <Select name="productId" value={value} onChange={(e) => onPick(known.current.get(e.target.value))} required>
+        <option value="">{loading ? "Searching…" : options.length ? "Select product…" : "No matching products"}</option>
+        {options.map((p) => (
+          <option key={p.id} value={p.id}>
+            {[p.name, p.size].filter(Boolean).join(" · ")} ({p.stock} in stock)
+          </option>
+        ))}
+      </Select>
+    </>
+  )
+}
+
 export function EntryForm({
   type,
   parties,
-  products,
   masters,
   initial,
   onClose,
@@ -534,7 +570,6 @@ export function EntryForm({
 }: {
   type: string
   parties: Party[]
-  products: Product[]
   masters: Masters
   initial?: Party | Product
   onClose: () => void
@@ -549,7 +584,7 @@ export function EntryForm({
   const [quantity, setQuantity] = useState("")
   const [confirm, setConfirm] = useState(false)
   const party = parties.find((p) => p.id === selected)
-  const product = products.find((p) => p.id === selected)
+  const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
   const editing = !!initial?.id && (type === "party" || type === "product")
   const prod = (editing && type === "product" ? initial : undefined) as Product | undefined
   const pty = (editing && type === "party" ? initial : undefined) as Party | undefined
@@ -678,14 +713,14 @@ export function EntryForm({
         {type === "adjust" && (
           <>
             <Field label="Product" required>
-              <Select name="productId" value={selected} onChange={(e) => setSelected(e.target.value)} required>
-                <option value="">Select product…</option>
-                {products.filter((p) => p.active).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {[p.name, p.size].filter(Boolean).join(" · ")}
-                  </option>
-                ))}
-              </Select>
+              <ProductPicker
+                value={selected}
+                initial={product}
+                onPick={(p) => {
+                  setSelected(p?.id ?? "")
+                  setProduct(p)
+                }}
+              />
             </Field>
             {product && (
               <div className="form-balance">
@@ -1292,24 +1327,20 @@ export function InvoicePreview({
 }
 
 export function StockDetails({
-  product,
+  product: shown,
   onAdjust,
   onEdit,
-  movements,
 }: {
   product: Product
   onAdjust: () => void
   onEdit?: () => void
-  movements: {
-    id: string
-    date: string
-    type: string
-    quantity: number
-    productId: string
-    reason: string
-  }[]
 }) {
-  const rows = movements.filter((m) => m.productId === product.id)
+  // Always show the live figures (they change after an adjustment) and the movement history one page at a time.
+  const { data: fresh } = useRemote("products:list", { ids: [shown.id], pageSize: 1 })
+  const product = fresh?.rows[0] ?? shown
+  const [movePage, setMovePage] = useState(1)
+  const { data: moves, loading: movesLoading } = useRemote("movements:list", { productId: shown.id, page: movePage, pageSize: 10 })
+  const rows = moves?.rows ?? []
   return (
     <>
       <div className="stock-detail">
@@ -1362,6 +1393,7 @@ export function StockDetails({
       </div>
       <DataTable
         rows={rows}
+        server={{ total: moves?.total ?? 0, page: movePage, pageSize: 10, onPage: setMovePage, loading: movesLoading }}
         empty="No stock movements recorded yet"
         columns={[
           { key: "date", label: "Date" },

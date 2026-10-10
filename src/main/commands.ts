@@ -117,7 +117,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "auth:changePassword": (p) => (ctx.session.changePassword(db(), p.current, p.next), null),
 
     "snapshot:get": () => (actor(), buildSnapshot(db())),
-    "products:list": (p) => (actor(), { ...listProducts(db(), p), summary: p.page === undefined || p.page === 1 ? inventorySummary(db()) : undefined }),
+    "products:list": (p) => (actor(), { ...listProducts(db(), p), summary: inventorySummary(db()) }),
     "docs:list": (p) => (actor(), listDocs(db(), p)),
     "movements:list": (p) => (actor(), listMovements(db(), p)),
     "report:run": (p) => (requirePermission(actor(), "report.view"), runReport(db(), p)),

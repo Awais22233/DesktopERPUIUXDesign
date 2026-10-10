@@ -36,9 +36,9 @@ describe("paged, searchable lists", () => {
     expect(seen.size).toBe(133)
     expect(pages).toBe(4)
     expect(listProducts(c.db, { status: "low" }).rows.map((r) => r.color)).toEqual(["Lowish"])
-    expect(listProducts(c.db, { status: "in" }).total).toBe(2)
+    expect(listProducts(c.db, { status: "in" }).total).toBe(1)
     expect(listProducts(c.db, { status: "out" }).total).toBe(131)
-    expect(inventorySummary(c.db)).toMatchObject({ items: 133, units: 53, value: 53 * 1000, low: 1, out: 131 })
+    expect(inventorySummary(c.db)).toMatchObject({ items: 133, units: 53, value: 53 * 1000, low: 1, out: 131, reorder: 132 })
   })
 
   it("document lists search by number/party, filter by status, and report totals that exclude cancelled documents", async () => {

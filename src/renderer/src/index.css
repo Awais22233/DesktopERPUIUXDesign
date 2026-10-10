@@ -475,7 +475,7 @@ td strong { color: #46526a; font-weight: 550; }
 .invoice-meta strong { font-size: 13px; }
 .invoice-totals { width: 280px; margin: 20px 0 25px auto; }
 .invoice-totals > div { display: flex; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
-.invoice-totals > div:first-child strong { color: var(--primary); font-size: 16px; }
+.invoice-totals > div.grand strong { color: var(--primary); font-size: 16px; }
 .invoice-note { font-size: 10px; line-height: 1.9; color: #919db1; margin-top: 30px; }
 .invoice-signature { display: flex; justify-content: space-between; font-size: 9px; color: #9da6b6; margin-top: 45px; }
 .invoice-signature span { border-top: 1px solid var(--border); padding-top: 10px; min-width: 140px; }
@@ -483,10 +483,13 @@ td strong { color: #46526a; font-weight: 550; }
 .receipt-amount > span { font-size: 12px; color: #8b99af; display: block; }
 .receipt-amount strong { font-size: 37px; color: var(--primary); display: block; margin: 13px 0; letter-spacing: -1px; }
 .receipt-amount p { font-size: 11px; color: #8595b0; }
-.invoice-paper.thermal { width: 340px; margin-left: auto; margin-right: auto; padding: 20px; }
-.thermal table { white-space: normal; font-size: 8px; }
-.thermal td, .thermal th { padding: 7px 3px; font-size: 8px; }
-.thermal .cell-two strong, .thermal .cell-two span { font-size: 8px; }
+/* The thermal receipt looks on screen exactly as it prints (same width, same type), so its measured height is the roll length. */
+.invoice-paper.thermal { margin: 23px auto; padding: 0; }
+.invoice-paper.thermal.w80 { width: 74mm; }
+.invoice-paper.thermal.w58 { width: 52mm; }
+.thermal table { white-space: normal; font-size: 10px; }
+.thermal td, .thermal th { padding: 4px 3px; font-size: 10px; height: auto; }
+.thermal .cell-two strong, .thermal .cell-two span { font-size: 10px; }
 .thermal .invoice-title { flex-direction: column; gap: 8px; }
 .thermal .invoice-meta { flex-direction: column; gap: 15px; }
 .thermal .invoice-brand h2 { font-size: 19px; }
@@ -629,13 +632,29 @@ td strong { color: #46526a; font-weight: 550; }
   .sidebar, .top-header, .toast, .page-heading .heading-actions, .btn, .modal-heading, .modal-footer, .invoice-toolbar, .table-toolbar, .tabs, .pagination, .dashboard-footnote { display: none !important; }
   .main-shell { width: 100%; margin: 0; }
   .main-content { padding: 0; }
-  .modal-backdrop { position: absolute; padding: 0; background: white; display: block; backdrop-filter: none; }
+  .modal-backdrop { position: static; padding: 0; background: white; display: block; backdrop-filter: none; }
   body:has(.modal) .main-shell { display: none; }
   .modal { width: 100%; max-height: none; box-shadow: none; overflow: visible; border-radius: 0; }
   .invoice-paper { margin: 0; padding: 0; border: 0; }
-  .panel, .invoice-paper, tr { break-inside: avoid; }
+  /* A long invoice flows onto further pages; rows are never cut in half and the column titles repeat. */
+  tr { break-inside: avoid; }
+  .app-shell { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  html, body, #root { height: auto !important; overflow: visible !important; }
+  thead { display: table-header-group; }
+  html, body, .app-shell, .modal-backdrop, .modal { background: #fff !important; }
+  th > button { display: inline; appearance: none; font: inherit; }
+  .invoice-totals, .invoice-signature, .invoice-note { break-inside: avoid; }
   .table-scroll { overflow: visible; }
-  .thermal { width: 80mm !important; }
+  /* Paper is black and white: no pale greys that vanish on a thermal printer. */
+  .invoice-paper, .invoice-paper * { color: #000 !important; }
+  .invoice-paper .sort-icon { display: none; }
+  /* A thermal roll is its own page size, not a narrow strip on an A4 sheet. */
+  .invoice-paper:not(.thermal) td { height: auto; padding: 5px 6px; border-bottom: 1px solid #999; }
+  .invoice-paper:not(.thermal) th { padding: 5px 6px; background: none; border-top: 1px solid #000; border-bottom: 1px solid #000; }
+  .invoice-paper:not(.thermal) table { font-size: 11px; }
+  .invoice-paper.thermal { margin: 0; }
+}
+@media print {
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 

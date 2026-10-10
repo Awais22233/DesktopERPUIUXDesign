@@ -1471,6 +1471,8 @@ export default function App() {
             transaction={type === "invoice" ? (data as Transaction) : undefined}
             collection={type === "receipt" ? (data as Collection) : undefined}
             onClose={closeModal}
+            defaultLayout={store.masters.settings["invoice.layout"]}
+            thermalWidth={store.masters.settings["print.thermal_width"]}
             purchase={(data as Transaction | undefined)?.kind === "purchase"}
             canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
             onVoid={async (reason) => {

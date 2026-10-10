@@ -1149,8 +1149,11 @@ export function InvoicePreview({
   transaction,
   collection,
   onClose,
+  purchase = false,
   canVoid = false,
   onVoid,
+  defaultLayout = "A4 invoice",
+  thermalWidth = "80",
 }: {
   transaction?: Transaction
   collection?: Collection
@@ -1158,12 +1161,28 @@ export function InvoicePreview({
   purchase?: boolean
   canVoid?: boolean
   onVoid?: (reason: string) => void | Promise<void>
+  /** From Settings > Printing. The user can still switch on the preview. */
+  defaultLayout?: string
+  thermalWidth?: string
 }) {
   const [voiding, setVoiding] = useState(false)
   const [reason, setReason] = useState("")
-  const [layout, setLayout] = useState("A4 invoice")
+  const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
   const { business } = useBusiness()
   const receipt = !!collection
+  // A thermal roll has no fixed length: the page is exactly as tall as the receipt, so no paper is wasted.
+  const paperRef = useRef<HTMLDivElement>(null)
+  const [rollMm, setRollMm] = useState(0)
+  const thermal = layout === "Thermal receipt"
+  useEffect(() => {
+    const el = paperRef.current
+    if (!thermal || !el) return
+    const measure = () => setRollMm(Math.ceil((el.getBoundingClientRect().height * 25.4) / 96) + 10)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [thermal, transaction, collection])
   return (
     <>
       <div className="invoice-toolbar">
@@ -1201,9 +1220,12 @@ export function InvoicePreview({
           </div>
         </div>
       )}
+      {/* The roll size only applies while printing; A4 keeps the default page. */}
+      {layout === "Thermal receipt" && <style>{`@page { size: ${thermalWidth === "58" ? "58mm" : "80mm"} ${rollMm || 200}mm; margin: 3mm; }`}</style>}
       <div
+        ref={paperRef}
         className={`invoice-paper ${
-          layout === "Thermal receipt" ? "thermal" : ""
+          layout === "Thermal receipt" ? `thermal ${thermalWidth === "58" ? "w58" : "w80"}` : ""
         }`}
       >
         <div className="invoice-brand">
@@ -1222,7 +1244,7 @@ export function InvoicePreview({
           <Heading level={3}>
             {receipt
               ? "PAYMENT RECEIPT"
-              : transaction?.id.startsWith("PUR")
+              : purchase
                 ? "PURCHASE INVOICE"
                 : "SALES INVOICE"}
           </Heading>
@@ -1248,6 +1270,7 @@ export function InvoicePreview({
           </div>
         ) : (
           <DataTable
+            plainHeader
             rows={transaction?.lines ?? []}
             columns={[
               {
@@ -1256,7 +1279,7 @@ export function InvoicePreview({
                 render: (r) => (
                   <div className="cell-two">
                     <strong>{r.name}</strong>
-                    <span>{r.color}</span>
+                    {r.color && !r.name.endsWith(r.color) && <span>{r.color}</span>}
                   </div>
                 ),
               },
@@ -1285,7 +1308,19 @@ export function InvoicePreview({
         )}
         {!receipt && (
           <div className="invoice-totals">
-            <div>
+            {(transaction?.invoiceDiscount ?? 0) > 0 && (
+              <>
+                <div>
+                  <span>Subtotal</span>
+                  <span>{money((transaction?.total || 0) + (transaction?.invoiceDiscount || 0))}</span>
+                </div>
+                <div>
+                  <span>Invoice discount</span>
+                  <span>− {money(transaction?.invoiceDiscount || 0)}</span>
+                </div>
+              </>
+            )}
+            <div className="grand">
               <span>Total</span>
               <strong>{money(transaction?.total || 0)}</strong>
             </div>

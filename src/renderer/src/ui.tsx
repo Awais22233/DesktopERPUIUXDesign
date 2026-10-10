@@ -221,12 +221,15 @@ export function DataTable<T extends object>({
   empty = "No records found",
   pagination = false,
   server,
+  plainHeader = false,
 }: {
   columns: Column<T>[]
   rows: T[]
   onRow?: (row: T) => void
   empty?: string
   pagination?: boolean
+  /** Column titles as plain text (no sort buttons): used for printed documents, where buttons do not repeat on later pages. */
+  plainHeader?: boolean
   /** The rows are one page held by the engine: paging, totals and loading come from here. */
   server?: { total: number; page: number; pageSize: number; onPage: (page: number) => void; loading?: boolean }
 }) {
@@ -260,7 +263,7 @@ export function DataTable<T extends object>({
             <tr>
               {columns.map((col) => (
                 <th key={col.key} className={col.right ? "align-right" : ""}>
-                  <Action
+                  {plainHeader ? col.label : <Action
                     onClick={() =>
                       setSort({
                         key: col.key,
@@ -278,7 +281,7 @@ export function DataTable<T extends object>({
                     ) : (
                       <ArrowUpDown size={12} className="sort-icon" />
                     )}
-                  </Action>
+                  </Action>}
                 </th>
               ))}
             </tr>

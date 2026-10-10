@@ -65,5 +65,5 @@ export async function launch(profile, client) {
     }
     console.log("\nAll steps passed with no page errors")
   }
-  return { app, page, step, shot, nav, finish }
+  return { app, page, step, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
 }

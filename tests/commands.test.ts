@@ -24,6 +24,11 @@ async function app(profile: ProfileId = "cloth") {
   c["auth:setup"]({ name: "Faraz", username: "faraz", password: "secret1" })
   return { db, c, session }
 }
+/** Paged lists: the renderer no longer receives whole collections in the snapshot. */
+type Cmds = ReturnType<typeof createCommands>
+const P = async (c: Cmds) => (await c["products:list"]({ pageSize: 500 })).rows
+const S = async (c: Cmds) => (await c["docs:list"]({ kind: "sale", pageSize: 500 })).rows
+const U = async (c: Cmds) => (await c["docs:list"]({ kind: "purchase", pageSize: 500 })).rows
 const fail = async (fn: () => unknown) => {
   try {
     await fn()
@@ -39,9 +44,9 @@ describe("a brand-new installation holds no demo data", () => {
     const s = (await c["snapshot:get"](undefined)) as Awaited<ReturnType<typeof c["snapshot:get"]>>
     expect(s.parties).toEqual([])
     expect(s.suppliers).toEqual([])
-    expect(s.products).toEqual([])
-    expect(s.sales).toEqual([])
-    expect(s.purchases).toEqual([])
+    expect(await P(c)).toEqual([])
+    expect(await S(c)).toEqual([])
+    expect(await U(c)).toEqual([])
     expect(s.collections).toEqual([])
     expect(s.expenses).toEqual([])
     expect(s.returns).toEqual([])
@@ -85,10 +90,10 @@ describe("end to end through the command layer (what the screens call)", () => {
     let s = await c["snapshot:get"](undefined)
     const p = s.parties[0]!
     expect(p).toMatchObject({ name: "Ali Traders", city: "Ghotki", balance: 2000 + 15000 - 6000, status: "Outstanding" })
-    expect(s.products[0]).toMatchObject({ stock: 10, cost: 1000, rate: 1500, size: "40 meter" })
+    expect((await P(c))[0]).toMatchObject({ stock: 10, cost: 1000, rate: 1500, size: "40 meter" })
     expect(s.accounts["Cash in hand"]).toBe(106000)
-    expect(s.sales[0]).toMatchObject({ id: "INV-00001", party: "Ali Traders", total: 15000, paid: 6000, method: "Partial", items: 10 })
-    expect(s.sales[0]!.lines![0]).toMatchObject({ qty: 10, rate: 1500, size: "40 meter" })
+    expect((await S(c))[0]).toMatchObject({ id: "INV-00001", party: "Ali Traders", total: 15000, paid: 6000, method: "Partial", items: 10 })
+    expect((await S(c))[0]!.lines![0]).toMatchObject({ qty: 10, rate: 1500, size: "40 meter" })
 
     await c["receipt:create"]({ partyId: party, account: "Cash in hand", method: "Cash", amount: 3000, notes: "Installment", receivedBy: "Faraz" })
     await c["return:sale"]({ invoice: "INV-00001", quantities: { [blue]: 2 }, settlement: "balance" })
@@ -97,7 +102,7 @@ describe("end to end through the command layer (what the screens call)", () => {
     expect(s.parties[0]!.balance).toBe(11000 - 3000 - 3000)
     expect(s.collections[0]).toMatchObject({ amount: 3000, notes: "Installment" })
     expect(s.returns[0]).toMatchObject({ type: "Sale return", original: "INV-00001", total: 3000 })
-    expect(s.products[0]!.stock).toBe(12)
+    expect((await P(c))[0]!.stock).toBe(12)
     expect(s.accounts["Cash in hand"]).toBe(106000 + 3000 - 500)
     expect(s.audits.some((a) => a.action === "Sale saved")).toBe(true)
 
@@ -106,8 +111,8 @@ describe("end to end through the command layer (what the screens call)", () => {
     const second = await c["sale:create"]({ partyId: party, lines: [{ productId: blue, qty: 4 }], payments: [] })
     await c["sale:void"]({ id: second.id, reason: "customer cancelled" })
     s = await c["snapshot:get"](undefined)
-    expect(s.sales[0]!.status).toBe("void")
-    expect(s.products[0]!.stock).toBe(12)
+    expect((await S(c))[0]!.status).toBe("void")
+    expect((await P(c))[0]!.stock).toBe(12)
   })
 
   it("rejects bad input at the boundary with plain messages", async () => {
@@ -135,7 +140,7 @@ describe("end to end through the command layer (what the screens call)", () => {
     const rows = db.prepare("SELECT b.batch_no, COALESCE(SUM(m.qty_delta),0) q FROM batches b LEFT JOIN stock_movements m ON m.batch_id=b.id GROUP BY b.id ORDER BY b.batch_no").all()
     expect(rows).toEqual([{ batch_no: "B1", q: 0 }, { batch_no: "B2", q: 8 }]) // B1 (earlier expiry) went first
     const s = await c["snapshot:get"](undefined)
-    expect(s.products[0]).toMatchObject({ stock: 8, expiry: "2027-06-01", barcode: "8901234" })
+    expect((await P(c))[0]).toMatchObject({ stock: 8, expiry: "2027-06-01", barcode: "8901234" })
     await c["sale:void"]({ id: "INV-00001", reason: "test" })
     const back = db.prepare("SELECT b.batch_no, COALESCE(SUM(m.qty_delta),0) q FROM batches b LEFT JOIN stock_movements m ON m.batch_id=b.id GROUP BY b.id ORDER BY b.batch_no").all()
     expect(back).toEqual([{ batch_no: "B1", q: 5 }, { batch_no: "B2", q: 10 }]) // restored to the same batches
@@ -176,7 +181,7 @@ describe("what the sales screen charges", () => {
     const sup = (await c["party:save"]({ kind: "supplier", name: "S" })).id
     const v = (await c["product:save"]({ company: "F", article: "A", cost: 1000, rate: 1500, wholesale: 1400 })).id
     await c["purchase:create"]({ supplierId: sup, lines: [{ productId: v, qty: 5, rate: 1000 }], payments: [] })
-    const p = (await c["snapshot:get"](undefined)).products[0]!
+    const p = (await P(c))[0]!
     expect(p).toMatchObject({ rate: 1500, wholesale: 1400, price: 1400 }) // wholesale feature is on for cloth
     await c["user:create"]({ name: "Sam", username: "sam", password: "abcdef", role: "Sales User" })
     session.logout(db)

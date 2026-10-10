@@ -14,18 +14,6 @@ const localParts = (iso: string, off: number) => new Date(new Date(iso).getTime(
 export const bizDate = (iso: string, off: number) => localParts(iso, off).slice(0, 10)
 const bizTime = (iso: string, off: number) => localParts(iso, off).slice(11, 16)
 
-const MOVEMENT_LABEL: Record<string, string> = {
-  opening: "Opening stock",
-  purchase: "Purchase",
-  sale: "Sale",
-  sale_return: "Sale return",
-  purchase_return: "Purchase return",
-  sale_void: "Sale void",
-  purchase_void: "Purchase void",
-  damage: "Damage",
-  adjustment_in: "Adjustment",
-  adjustment_out: "Adjustment",
-}
 const ENTRY_LABEL: Record<string, string> = {
   opening: "Opening",
   sale_receipt: "Sale",
@@ -146,97 +134,17 @@ export function buildSnapshot(db: DB): Snapshot {
   const parties = (db.prepare(`SELECT p.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM parties p LEFT JOIN cities c ON c.id = p.city_id LEFT JOIN v_customer_balance b ON b.party_id = p.id WHERE p.is_walk_in = 0 ORDER BY p.name`).all() as never[]).map((x) => partyRow(x, "PTY"))
   const suppliers = (db.prepare(`SELECT s.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM suppliers s LEFT JOIN cities c ON c.id = s.city_id LEFT JOIN v_supplier_balance b ON b.supplier_id = s.id ORDER BY s.name`).all() as never[]).map((x) => partyRow(x, "SUP"))
 
-  const wholesaleOn = (db.prepare("SELECT enabled FROM feature_flags WHERE key = 'wholesalePrice'").get() as { enabled: number } | undefined)?.enabled === 1
-  const products = (db.prepare(`
-    SELECT v.*, i.name AS article, co.name AS company, COALESCE(cat.name,'') AS category, COALESCE(sl.qty,0) AS stock, COALESCE(sl.avg_cost,0) AS avg_cost,
-           (SELECT MIN(b.expiry_date) FROM batches b WHERE b.variant_id = v.id AND b.expiry_date IS NOT NULL
-              AND (SELECT COALESCE(SUM(m.qty_delta),0) FROM stock_movements m WHERE m.batch_id = b.id) > 0) AS expiry
-    FROM variants v JOIN items i ON i.id = v.item_id JOIN companies co ON co.id = i.company_id
-    LEFT JOIN categories cat ON cat.id = i.category_id LEFT JOIN stock_levels sl ON sl.variant_id = v.id AND sl.warehouse_id = 1
-    ORDER BY co.name, i.name, v.color`).all() as Record<string, any>[]).map((v) => ({
-    id: fmtId("VAR", v.id),
-    name: `${v.article}${v.color ? " " + v.color : ""}`,
-    company: v.company,
-    category: v.category,
-    article: v.article,
-    color: v.color ?? "",
-    design: v.design ?? "",
-    size: v.size_label ?? "",
-    unit: v.unit,
-    barcode: v.barcode ?? "",
-    sku: v.sku ?? "",
-    stock: v.stock,
-    cost: r(v.avg_cost || v.purchase_price),
-    rate: r(v.sale_price),
-    price: r(wholesaleOn && v.wholesale_price != null ? v.wholesale_price : v.sale_price),
-    wholesale: v.wholesale_price == null ? undefined : r(v.wholesale_price),
-    minStock: v.min_stock,
-    expiry: v.expiry ?? undefined,
-    active: !!v.active,
-  }))
-  const variantName = new Map(products.map((p) => [Number(p.id.split("-")[1]), p]))
-
-  const docs = (kind: "sale" | "purchase"): Transaction[] => {
-    const sale = kind === "sale"
-    const rows = db.prepare(sale
-      ? `SELECT s.id, s.invoice_no AS no, s.ts, s.party_id AS pid, p.name AS party, s.subtotal, s.discount, s.total, s.paid, s.status, NULL AS sinv, u.display_name AS usr FROM sales s JOIN parties p ON p.id = s.party_id LEFT JOIN users u ON u.id = s.user_id WHERE s.ts >= ? ORDER BY s.ts DESC, s.id DESC`
-      : `SELECT s.id, s.purchase_no AS no, s.ts, s.supplier_id AS pid, p.name AS party, s.subtotal, s.discount, s.total, s.paid, s.status, s.supplier_invoice_no AS sinv, u.display_name AS usr FROM purchases s JOIN suppliers p ON p.id = s.supplier_id LEFT JOIN users u ON u.id = s.user_id WHERE s.ts >= ? ORDER BY s.ts DESC, s.id DESC`).all(since) as Record<string, any>[]
-    if (rows.length === 0) return []
-    const ids = rows.map((x) => x.id)
-    const marks = ids.map(() => "?").join(",")
-    const lines = db.prepare(sale
-      ? `SELECT sale_id AS doc, variant_id, qty, rate, discount, size_label FROM sale_lines WHERE sale_id IN (${marks}) ORDER BY id`
-      : `SELECT purchase_id AS doc, l.variant_id, qty, rate, discount, v.size_label FROM purchase_lines l JOIN variants v ON v.id = l.variant_id WHERE purchase_id IN (${marks}) ORDER BY l.id`).all(...ids) as Record<string, any>[]
-    const byDoc = new Map<number, CartItem[]>()
-    for (const l of lines) {
-      const p = variantName.get(l.variant_id)
-      const arr = byDoc.get(l.doc) ?? []
-      arr.push({ productId: fmtId("VAR", l.variant_id), name: p?.name ?? `Item ${l.variant_id}`, color: p?.color ?? "", size: l.size_label ?? "", qty: l.qty, rate: r(l.rate), discount: r(l.discount) })
-      byDoc.set(l.doc, arr)
-    }
-    const pays = db.prepare(sale
-      ? `SELECT sale_id AS doc, a.name AS account, sp.method FROM sale_payments sp JOIN accounts a ON a.id = sp.account_id WHERE sale_id IN (${marks}) ORDER BY sp.id`
-      : `SELECT purchase_id AS doc, a.name AS account, sp.method FROM purchase_payments sp JOIN accounts a ON a.id = sp.account_id WHERE purchase_id IN (${marks}) ORDER BY sp.id`).all(...ids) as { doc: number; account: string; method: string }[]
-    const firstPay = new Map<number, { account: string; method: string }>()
-    for (const p of pays) if (!firstPay.has(p.doc)) firstPay.set(p.doc, p)
-    return rows.map((x) => {
-      const ls = byDoc.get(x.id) ?? []
-      const fp = firstPay.get(x.id)
-      const lineDisc = ls.reduce((s, l) => s + l.discount, 0)
-      return {
-        id: x.no,
-        party: x.party,
-        partyId: fmtId(sale ? "PTY" : "SUP", x.pid),
-        date: bizDate(x.ts, off),
-        items: ls.reduce((s, l) => s + l.qty, 0),
-        total: r(x.total),
-        paid: r(x.paid),
-        method: x.paid === 0 ? "Credit" : x.paid >= x.total ? (fp?.method ?? "Cash") : "Partial",
-        lines: ls,
-        account: fp?.account,
-        supplierInvoice: x.sinv ?? undefined,
-        invoiceDiscount: Math.max(0, r(x.discount) - lineDisc),
-        status: x.status,
-        user: x.usr ?? "",
-      } as Transaction
-    })
-  }
-
   const collections = (db.prepare(`SELECT p.doc_no, p.ts, p.amount, p.method, p.reference, p.notes, p.received_by, pa.name AS party, a.name AS account, u.display_name AS usr
       FROM payments p JOIN parties pa ON pa.id = p.party_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id
-      WHERE p.kind = 'customer_receipt' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC`).all(since) as Record<string, any>[]).map((x) => ({
+      WHERE p.kind = 'customer_receipt' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
     id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "",
   }))
 
-  const expenses = (db.prepare(`SELECT e.id, e.ts, e.amount, e.description, c.name AS category, a.name AS account, u.display_name AS usr FROM expenses e JOIN expense_categories c ON c.id = e.category_id JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.user_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC`).all(since) as Record<string, any>[]).map((x) => ({
+  const expenses = (db.prepare(`SELECT e.id, e.ts, e.amount, e.description, c.name AS category, a.name AS account, u.display_name AS usr FROM expenses e JOIN expense_categories c ON c.id = e.category_id JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.user_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
     id: fmtId("EXP", x.id), category: x.category, amount: r(x.amount), account: x.account, date: bizDate(x.ts, off), notes: x.description ?? "", user: x.usr ?? "",
   }))
 
   const label = (src: string | null, id: number | null) => docLabel(db, src, id)
-
-  const movements = (db.prepare(`SELECT m.id, m.ts, m.variant_id, m.qty_delta, m.type, m.source_type, m.source_id, m.note FROM stock_movements m WHERE m.ts >= ? ORDER BY m.ts DESC, m.id DESC LIMIT 4000`).all(since) as Record<string, any>[]).map((m) => ({
-    id: label(m.source_type, m.source_id) || fmtId("MOV", m.id), date: bizDate(m.ts, off), type: MOVEMENT_LABEL[m.type] ?? m.type, quantity: m.qty_delta, productId: fmtId("VAR", m.variant_id), reason: m.note ?? "",
-  }))
 
   const entries = (db.prepare(`SELECT e.id, e.ts, e.amount, e.kind, e.description, e.source_type, e.source_id, a.name AS account FROM account_entries e JOIN accounts a ON a.id = e.account_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC LIMIT 6000`).all(since) as Record<string, any>[]).map((e) => ({
     id: label(e.source_type, e.source_id) || fmtId("ENT", e.id), date: bizDate(e.ts, off), account: e.account, description: e.description ?? "", incoming: e.amount > 0 ? r(e.amount) : 0, outgoing: e.amount < 0 ? r(-e.amount) : 0, type: ENTRY_LABEL[e.kind] ?? e.kind,
@@ -268,7 +176,7 @@ export function buildSnapshot(db: DB): Snapshot {
 
   return {
     today, historyFrom, walkInId: walk ? fmtId("PTY", walk.id) : "",
-    parties, suppliers, products, sales: docs("sale"), purchases: docs("purchase"), collections, expenses, movements, accounts, entries, users, audits, returns, closings,
+    parties, suppliers, collections, expenses, accounts, entries, users, audits, returns, closings,
     masters: buildMasters(db),
     dashboard: buildDashboard(db, today),
   }

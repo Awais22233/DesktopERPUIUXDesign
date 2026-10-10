@@ -12,6 +12,7 @@ import { postPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale } from "./services/sales"
 import { bizDate, buildSnapshot } from "./services/snapshot"
+import { inventorySummary, listDocs, listMovements, listProducts } from "./services/lists"
 import { ledgerView } from "./services/ledger"
 import { runReport } from "./services/reports"
 import { getBusiness, setBusiness } from "./services/business"
@@ -116,6 +117,9 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "auth:changePassword": (p) => (ctx.session.changePassword(db(), p.current, p.next), null),
 
     "snapshot:get": () => (actor(), buildSnapshot(db())),
+    "products:list": (p) => (actor(), { ...listProducts(db(), p), summary: p.page === undefined || p.page === 1 ? inventorySummary(db()) : undefined }),
+    "docs:list": (p) => (actor(), listDocs(db(), p)),
+    "movements:list": (p) => (actor(), listMovements(db(), p)),
     "report:run": (p) => (requirePermission(actor(), "report.view"), runReport(db(), p)),
     "ledger:get": (p) => (actor(), ledgerView(db(), p.kind, idNumber(p.id))),
     "business:get": () => getBusiness(db()),

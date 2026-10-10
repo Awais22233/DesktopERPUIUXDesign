@@ -4,6 +4,7 @@ import type { DashboardData } from "@shared/models"
 import { dayRange } from "./closing"
 import { profitSummary } from "./queries"
 import { bizDate } from "./snapshot"
+import { inventorySummary, listDocs, listProducts } from "./lists"
 
 const r = (minor: number) => minor / 100
 const DAY = 86_400_000
@@ -20,6 +21,12 @@ const dayLabel = (d: string) => {
 const bucketLabel = (d: string) => {
   const t = new Date(`${d}T00:00:00Z`)
   return `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]}`
+}
+
+/** The items that most need re-ordering: out of stock or at/below their minimum, lowest first. */
+function lowStock(db: DB) {
+  const ids = (db.prepare("SELECT v.id FROM variants v LEFT JOIN stock_levels sl ON sl.variant_id = v.id AND sl.warehouse_id = 1 WHERE v.active = 1 AND COALESCE(sl.qty,0) <= v.min_stock ORDER BY COALESCE(sl.qty,0), v.id LIMIT 8").all() as { id: number }[]).map((x) => `VAR-${x.id}`)
+  return ids.length ? listProducts(db, { ids, pageSize: 8 }).rows.sort((a, b) => a.stock - b.stock) : []
 }
 
 export function buildDashboard(db: DB, today: string): DashboardData {
@@ -118,6 +125,10 @@ export function buildDashboard(db: DB, today: string): DashboardData {
     weekPrev,
     month,
     monthPrev,
+    inventory: inventorySummary(db),
+    lowStock: lowStock(db),
+    recentSales: listDocs(db, { kind: "sale", pageSize: 6 }).rows,
+    recentPurchases: listDocs(db, { kind: "purchase", pageSize: 6 }).rows,
     expiring,
     cities,
   }

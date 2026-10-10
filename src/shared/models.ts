@@ -84,12 +84,8 @@ export type Snapshot = {
   walkInId: string
   parties: Party[]
   suppliers: Party[]
-  products: Product[]
-  sales: Transaction[]
-  purchases: Transaction[]
   collections: Collection[]
   expenses: Expense[]
-  movements: Movement[]
   accounts: Record<string, number>
   entries: AccountEntry[]
   users: AppUser[]
@@ -121,6 +117,10 @@ export type DashboardData = {
   weekPrev: number
   month: { label: string; value: number }[]
   monthPrev: number
+  inventory: { items: number; units: number; value: number; low: number; out: number }
+  lowStock: Product[]
+  recentSales: Transaction[]
+  recentPurchases: Transaction[]
   expiring: { product: string; batch: string; expiry: string; qty: number; days: number }[]
   cities: { city: string; sales: number; recovery: number; outstanding: number; parties: number }[]
 }

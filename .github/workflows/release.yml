@@ -1,0 +1,36 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish installers. The download page links to the latest release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run pack:win
+      - name: Publish installer and checksum
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = "release/Wholesale-ERP-Setup.exe"
+          if (-not (Test-Path $exe)) { throw "Installer not found: $exe" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Wholesale-ERP-Setup.exe" | Out-File -Encoding ascii SHA256SUMS.txt
+          gh release view "${{ github.ref_name }}" 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes }
+          gh release upload "${{ github.ref_name }}" $exe SHA256SUMS.txt --clobber

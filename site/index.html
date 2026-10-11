@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wholesale ERP – Download</title>
+<meta name="description" content="Download and install Wholesale ERP for Windows. Works fully offline." />
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#14181f; --muted:#5b6574; --line:#e3e7ee; --brand:#1f4fd8; --brand-ink:#fff; --ok:#0d7a4f; --warn:#8a5a00; --warn-bg:#fff6e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1218; --card:#171c25; --ink:#eef1f6; --muted:#a2adbd; --line:#283040; --brand:#5b86ff; --brand-ink:#0b1020; --ok:#4fd39a; --warn:#f0c36a; --warn-bg:#2a2210; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
+  main { max-width:760px; margin:0 auto; padding:48px 16px 64px }
+  h1 { font-size:2rem; margin:0 0 6px; letter-spacing:-.01em }
+  h2 { font-size:1.15rem; margin:0 0 10px }
+  p { margin:0 0 12px }
+  .sub { color:var(--muted); margin-bottom:28px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px; margin-bottom:18px }
+  .btn { display:inline-flex; align-items:center; gap:10px; background:var(--brand); color:var(--brand-ink); text-decoration:none; font-weight:600; padding:14px 22px; border-radius:10px; border:0; font-size:1rem; cursor:pointer }
+  .btn:hover { filter:brightness(1.08) }
+  .btn.ghost { background:transparent; color:var(--brand); border:1px solid var(--line) }
+  .meta { color:var(--muted); font-size:.9rem; margin-top:12px }
+  ol.steps { list-style:none; counter-reset:s; padding:0; margin:0 }
+  ol.steps li { counter-increment:s; position:relative; padding:0 0 16px 46px }
+  ol.steps li:last-child { padding-bottom:0 }
+  ol.steps li::before { content:counter(s); position:absolute; left:0; top:0; width:30px; height:30px; border-radius:50%; background:var(--brand); color:var(--brand-ink); font-weight:700; display:grid; place-items:center; font-size:.9rem }
+  ol.steps strong { display:block }
+  .note { background:var(--warn-bg); color:var(--warn); border-radius:10px; padding:12px 14px; font-size:.93rem }
+  code { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:.88em; word-break:break-all }
+  details summary { cursor:pointer; font-weight:600 }
+  ul.facts { margin:0; padding-left:20px; color:var(--muted) }
+  .hidden { display:none }
+  #state { color:var(--muted); font-size:.9rem }
+</style>
+</head>
+<body>
+<main>
+  <h1>Wholesale ERP</h1>
+  <p class="sub">Sales, purchases, stock, party ledgers and finance for your shop. Runs fully offline on your own computer.</p>
+
+  <section class="card">
+    <h2>Download for Windows</h2>
+    <a class="btn" id="dl" href="#">⬇ Download installer</a>
+    <p class="meta" id="meta">Windows 10 or 11, 64-bit</p>
+    <p id="state"></p>
+  </section>
+
+  <section class="card">
+    <h2>Install in four steps</h2>
+    <ol class="steps">
+      <li><strong>Download and run the installer</strong>Open the downloaded file. It installs for your Windows user and adds a desktop shortcut. No internet is needed after the download.</li>
+      <li><strong>If Windows shows “Windows protected your PC”</strong>Click <em>More info</em>, then <em>Run anyway</em>. This message appears for new software from a small publisher; the file is the one published here (see “Verify your download” below).</li>
+      <li><strong>Open Wholesale ERP and copy the Computer ID</strong>The first screen shows a Computer ID. Press <em>Copy</em> and send it to your software provider.</li>
+      <li><strong>Paste the license key you receive</strong>Your provider sends back a license key made for this computer only. Paste it into the same screen and press Activate, then create your shop’s admin account.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Good to know</h2>
+    <ul class="facts">
+      <li>The license works on this one computer. If you change computers, ask your provider for a new key.</li>
+      <li>All your data stays on your computer. Use <em>Backup &amp; Restore</em> in the menu to keep copies on a USB drive.</li>
+      <li>Uninstalling does not delete your data.</li>
+    </ul>
+    <p class="hidden" id="support" style="margin-top:14px"><a class="btn ghost" id="wa" href="#">Message your provider on WhatsApp</a></p>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Verify your download (optional)</summary>
+      <p style="margin-top:10px">Open PowerShell in the folder with the installer and run:</p>
+      <p><code>Get-FileHash .\Wholesale-ERP-Setup.exe -Algorithm SHA256</code></p>
+      <p>The result must match the line for this file in <a id="sums" href="#">SHA256SUMS.txt</a>.</p>
+    </details>
+  </section>
+</main>
+<script>
+  // Everything that changes between releases lives here.
+  const CONFIG = {
+    repo: "Awais22233/DesktopERPUIUXDesign",   // GitHub repository that holds the Releases
+    installer: "Wholesale-ERP-Setup.exe",       // file name attached to every release
+    checksums: "SHA256SUMS.txt",
+    whatsapp: ""                                // provider's number with country code, digits only; leave empty to hide the button
+  }
+  const base = `https://github.com/${CONFIG.repo}/releases/latest/download/`
+  const dl = document.getElementById("dl")
+  dl.href = base + CONFIG.installer
+  document.getElementById("sums").href = base + CONFIG.checksums
+  if (CONFIG.whatsapp) {
+    document.getElementById("wa").href = `https://wa.me/${CONFIG.whatsapp}`
+    document.getElementById("support").classList.remove("hidden")
+  }
+  // Show the current version and size if the release can be read; the download button works either way.
+  fetch(`https://api.github.com/repos/${CONFIG.repo}/releases/latest`)
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((rel) => {
+      const a = (rel.assets || []).find((x) => x.name === CONFIG.installer)
+      if (!a) throw 0
+      const mb = (a.size / 1048576).toFixed(0)
+      document.getElementById("meta").textContent = `Version ${String(rel.tag_name).replace(/^v/, "")} · ${mb} MB · Windows 10 or 11, 64-bit`
+    })
+    .catch(() => {
+      document.getElementById("state").textContent = "If the download does not start, ask your provider for the installer."
+    })
+</script>
+</body>
+</html>

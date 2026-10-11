@@ -76,7 +76,7 @@ describe("the checks themselves are able to fail", () => {
       }
     }
     tamper("UPDATE ledger_entries SET debit = debit + 100 WHERE id = (SELECT MIN(id) FROM ledger_entries WHERE party_kind='customer' AND debit > 0)", (b) => b.customers.length > 0)
-    tamper("UPDATE account_entries SET amount = amount + 1 WHERE id = (SELECT MAX(id) FROM account_entries)", (b) => b.accounts.length > 0)
+    tamper("UPDATE account_entries SET amount = amount + (CASE WHEN amount = -1 THEN 2 ELSE 1 END) WHERE id = (SELECT MAX(id) FROM account_entries)", (b) => b.accounts.length > 0)
     tamper("UPDATE stock_levels SET value = value + 1 WHERE qty > 0", (b) => b.stock.length > 0)
     tamper("UPDATE sale_lines SET cost_total = cost_total + 5 WHERE id = (SELECT MIN(id) FROM sale_lines)", (b, id) => b.documents.length > 0 || id.difference !== 0)
   }, 60_000)

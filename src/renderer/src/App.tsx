@@ -77,7 +77,7 @@ import { money, today, setToday, L, type Collection, type Party, type Product, t
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
 import { useSession } from "./Auth"
-import { bumpData, useDebounced, useRemote } from "./remote"
+import { bumpData, fetchAllPages, useDebounced, useRemote } from "./remote"
 import type { Product as CountProduct } from "@shared/models"
 
 type Store = Snapshot
@@ -438,7 +438,11 @@ export default function App() {
               : "Every invoice, payment and outstanding sale in one place."
           }
         >
-          <ExportButton name={purchase ? "purchases" : "sales"} rows={rows} />
+          <ExportButton
+            name={purchase ? "purchases" : "sales"}
+            rows={rows}
+            loadAll={() => fetchAllPages((page) => api("docs:list", { kind: historyKind, query: dQuery, payment: historyPay, page, pageSize: 500 }))}
+          />
           <Button
             variant="primary"
             onClick={() => navigate(purchase ? "New Purchase" : "POS / Sales")}
@@ -696,7 +700,11 @@ export default function App() {
           title="Inventory"
           description={`Know exactly what’s on your shelves, by item, variant and ${L.size.toLowerCase()}.`}
         >
-          <ExportButton name="inventory" rows={rows} />
+          <ExportButton
+            name="inventory"
+            rows={rows}
+            loadAll={() => fetchAllPages((page) => api("products:list", { query: dQuery, status: invStatus, page, pageSize: 500 }))}
+          />
           <Button onClick={() => open("product")} disabled={!session.can("catalog.manage")}>
             <Plus size={15} />
             Add product

@@ -492,12 +492,24 @@ export function downloadFile(
 type ExportButtonProps = {
   name: string
   rows: object[]
+  /** For paged lists: fetches every matching row (not just the visible page) when the button is pressed. */
+  loadAll?: () => Promise<object[]>
 }
-export function ExportButton({ name, rows }: ExportButtonProps) {
+export function ExportButton({ name, rows, loadAll }: ExportButtonProps) {
+  const [busy, setBusy] = useState(false)
+  async function run() {
+    if (!loadAll) return exportCSV(name, rows)
+    setBusy(true)
+    try {
+      exportCSV(name, await loadAll())
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <Button onClick={() => exportCSV(name, rows)}>
+    <Button onClick={run} disabled={busy}>
       <Download size={15} />
-      Export
+      {busy ? "Preparing…" : "Export"}
     </Button>
   )
 }

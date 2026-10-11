@@ -58,3 +58,13 @@ export function useRemote<C extends Channel>(channel: C, payload: IpcContract[C]
   }, [channel, key, version, enabled])
   return { data, loading, error }
 }
+
+/** Walks a paged channel 500 rows at a time and returns every row (used by Export on big lists). */
+export async function fetchAllPages<T>(load: (page: number) => Promise<{ rows: T[]; total: number }>): Promise<T[]> {
+  const out: T[] = []
+  for (let page = 1; ; page++) {
+    const r = await load(page)
+    out.push(...r.rows)
+    if (!r.rows.length || out.length >= r.total) return out
+  }
+}

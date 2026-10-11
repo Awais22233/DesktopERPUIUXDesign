@@ -14,7 +14,8 @@ await step("first-run owner setup", async () => {
 })
 await step("cosmetics profile hides cloth-only features and wording", async () => {
   const side = await page.locator("aside").innerText()
-  if (/Recovery/.test(side)) throw new Error("Recovery is visible")
+  if (!/Recovery/.test(side)) throw new Error("Recovery is missing (cosmetics wholesalers also sell on credit)")
+  if (/City/.test(side)) throw new Error("a cloth-only city screen is visible")
   const t = await page.locator("body").innerText()
   if (/Than/.test(t)) throw new Error("the word Than is visible")
 })

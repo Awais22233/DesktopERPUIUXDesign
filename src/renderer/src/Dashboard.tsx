@@ -136,7 +136,7 @@ export default function Dashboard({
       </div>
       <div className="kpi-grid">
         {kpis.map((k) => (
-          <div className="kpi-card" key={k.title}>
+          <div className={`kpi-card kpi-${k.tone}`} key={k.title}>
             <div className="kpi-top">
               <span>{k.title}</span>
               <span className={`kpi-icon ${k.tone}`}>
@@ -269,8 +269,8 @@ export default function Dashboard({
             >
               <defs>
                 <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#5667ae" stopOpacity=".13" />
-                  <stop offset="100%" stopColor="#5667ae" stopOpacity="0" />
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity=".13" />
+                  <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
                 </linearGradient>
               </defs>
               {[0, 1, 2, 3, 4].map((i) => (
@@ -292,7 +292,7 @@ export default function Dashboard({
               <path
                 d={path}
                 fill="none"
-                stroke="#495f9e"
+                stroke="var(--primary)"
                 strokeWidth="2.5"
                 strokeLinecap="round"
               />
@@ -307,7 +307,7 @@ export default function Dashboard({
                     cy={p.y}
                     r={hover === i ? 5 : 3.5}
                     fill="white"
-                    stroke="#495f9e"
+                    stroke="var(--primary)"
                     strokeWidth="2"
                   />
                   <circle cx={p.x} cy={p.y} r="15" fill="transparent" />

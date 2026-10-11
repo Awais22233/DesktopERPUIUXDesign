@@ -15,20 +15,23 @@ export const businessSchema = z.object({
   city: z.string().trim().max(60),
   logo: z.string().max(400_000, "The logo image is too large (maximum about 300 KB)").refine((v) => v === "" || LOGO.test(v), "The logo must be a PNG, JPG, WebP or SVG image"),
   invoiceFooter: z.string().trim().max(200),
+  accent: z.enum(["navy", "green", "teal", "purple", "maroon"], { message: "Choose one of the listed colours" }).optional(),
 })
 
-const KEYS = ["name", "tagline", "owner", "phone", "email", "address", "city", "logo", "invoiceFooter"] as const
+const KEYS = ["name", "tagline", "owner", "phone", "email", "address", "city", "logo", "invoiceFooter", "accent"] as const
 
 export function getBusiness(db: DB): Business {
   const out = {} as Business
-  for (const k of KEYS) out[k] = getSetting(db, `business.${k}`, "")
+  for (const k of KEYS) (out as unknown as Record<string, string>)[k] = getSetting(db, `business.${k}`, "")
+  if (!businessSchema.shape.accent.safeParse(out.accent).success) out.accent = "navy"
   return out
 }
 
 export function setBusiness(db: DB, userId: number | null, input: Business): Business {
   const clean = businessSchema.parse(input)
+  const accent = clean.accent ?? getBusiness(db).accent // a caller that does not send a colour keeps the current one
   tx(db, () => {
-    for (const k of KEYS) setSetting(db, `business.${k}`, clean[k])
+    for (const k of KEYS) setSetting(db, `business.${k}`, k === "accent" ? accent : clean[k] ?? "")
     audit(db, userId, "business.update", "settings", "business", { name: clean.name })
   })
   return getBusiness(db)

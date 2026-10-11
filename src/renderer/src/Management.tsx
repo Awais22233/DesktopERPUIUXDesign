@@ -1,5 +1,5 @@
 import { useConfig, profiles, featureMeta } from "./config"
-import { BrandMark, useBusiness } from "./business"
+import { BrandMark, useBusiness, type Business } from "./business"
 import { api } from "./backend"
 import type { BackupInfo } from "@shared/ipc"
 import type { Masters, ReportResult, ReturnRow } from "@shared/models"
@@ -375,6 +375,7 @@ export function Settings({
   const [section, setSection] = useState("Business setup")
   const { business, saveBusiness } = useBusiness()
   const [logoDraft, setLogoDraft] = useState(business.logo)
+  const [accentDraft, setAccentDraft] = useState<Business["accent"]>(business.accent)
   const logoInput = useRef<HTMLInputElement>(null)
   const st = masters.settings
   const get = (k: string, d: string) => st[k] ?? d
@@ -415,6 +416,7 @@ export function Settings({
         city: text("city"),
         logo: logoDraft,
         invoiceFooter: text("invoiceFooter"),
+        accent: accentDraft,
       }).then((error) => notify(error ?? "Business details saved."))
       return
     }
@@ -512,6 +514,27 @@ export function Settings({
                   </div>
                   <Field label="Invoice footer note">
                     <Input name="invoiceFooter" maxLength={200} placeholder="e.g. Goods once sold will not be returned" defaultValue={business.invoiceFooter} />
+                  </Field>
+                  <Field label="Screen colour">
+                    <div className="accent-picker" role="group" aria-label="Screen colour">
+                      {ACCENT_CHOICES.map(([id, label, sw]) => (
+                        <button
+                          type="button"
+                          key={id}
+                          className="accent-option"
+                          style={{ "--sw": sw } as React.CSSProperties}
+                          aria-pressed={accentDraft === id}
+                          onClick={() => {
+                            setAccentDraft(id)
+                            document.documentElement.dataset.accent = id
+                          }}
+                        >
+                          <span className="swatch" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <small className="muted">Changes the buttons and highlights on screen. Printed invoices stay black and white. Press Save to keep it.</small>
                   </Field>
                 </>
               ) : section === "Features" ? (
@@ -1278,3 +1301,11 @@ export function Returns({
     </>
   )
 }
+
+const ACCENT_CHOICES: [Business["accent"], string, string][] = [
+  ["navy", "Navy (default)", "#253b70"],
+  ["green", "Green", "#1f6b52"],
+  ["teal", "Teal", "#0f6b7a"],
+  ["purple", "Purple", "#5b3a8c"],
+  ["maroon", "Maroon", "#8a2f3c"],
+]

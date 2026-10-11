@@ -15,6 +15,8 @@ export interface Business {
   /** data: URL of a small PNG/JPG/WebP/SVG, or "" for the default mark. */
   logo: string
   invoiceFooter: string
+  /** Accent colour of the screens: navy (the approved default), green, teal, purple or maroon. */
+  accent: "navy" | "green" | "teal" | "purple" | "maroon"
 }
 
 export type LicenseState = "valid" | "missing" | "invalid" | "expired" | "wrong_machine" | "clock_tampered" | "wrong_profile"

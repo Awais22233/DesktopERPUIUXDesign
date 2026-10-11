@@ -76,9 +76,9 @@ export function Badge({
   const inferred =
     /^(paid|clear|active|completed|received|in stock|success)$/i.test(text)
       ? "green"
-      : /overdue|out of stock|void|loss|unpaid/i.test(text)
+      : /overdue|out of stock|void|cancel|expired|loss|unpaid|blocked/i.test(text)
         ? "red"
-        : /partial|low stock|pending|outstanding/i.test(text)
+        : /partial|low stock|pending|outstanding|expires|days left/i.test(text)
           ? "amber"
           : "neutral"
   return (
@@ -218,6 +218,7 @@ export function DataTable<T extends object>({
   columns,
   rows,
   onRow,
+  rowClass,
   empty = "No records found",
   pagination = false,
   server,
@@ -226,6 +227,8 @@ export function DataTable<T extends object>({
   columns: Column<T>[]
   rows: T[]
   onRow?: (row: T) => void
+  /** Extra class for a row (for example a greyed-out cancelled invoice). */
+  rowClass?: (row: T) => string
   empty?: string
   pagination?: boolean
   /** Column titles as plain text (no sort buttons): used for printed documents, where buttons do not repeat on later pages. */
@@ -291,7 +294,7 @@ export function DataTable<T extends object>({
               <tr
                 key={String((row as Record<string, unknown>).id || index)}
                 onClick={() => onRow?.(row)}
-                className={onRow ? "clickable-row" : ""}
+                className={`${onRow ? "clickable-row" : ""} ${rowClass?.(row) ?? ""}`.trim()}
               >
                 {columns.map((col) => (
                   <td

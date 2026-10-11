@@ -1,9 +1,16 @@
 name: Release
 
-# Push a tag like v0.1.0 to publish installers. The download page links to the latest release.
+# Publishes the installer. The download page links to the latest release.
 on:
   push:
     tags: ["v*"]
+  # Or run it by hand: Actions > Release > Run workflow, and type the version, e.g. v0.1.0.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
 
 permissions:
   contents: write
@@ -26,11 +33,12 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           $exe = "release/Wholesale-ERP-Setup.exe"
           if (-not (Test-Path $exe)) { throw "Installer not found: $exe" }
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           "$hash  Wholesale-ERP-Setup.exe" | Out-File -Encoding ascii SHA256SUMS.txt
-          gh release view "${{ github.ref_name }}" 2>$null
-          if ($LASTEXITCODE -ne 0) { gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes }
-          gh release upload "${{ github.ref_name }}" $exe SHA256SUMS.txt --clobber
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --title $env:TAG --target "${{ github.sha }}" --generate-notes }
+          gh release upload $env:TAG $exe SHA256SUMS.txt --clobber

@@ -46,10 +46,17 @@
   <div class="warn">Ye page aap ki <b>private key</b> use karta hai. Isay sirf apne computer par kholein, kisi website par upload na karein, aur key file kisi ko na dein.</div>
 
   <div class="card">
-    <h2><span class="num">1</span> Private key file</h2>
+    <h2><span class="num">1</span> Private key</h2>
     <p class="hint">Wohi file jo <code>private.pem</code> ya <code>erp-license-PRIVATE-KEY-keep-secret.pem</code> ke naam se hai. Har dafa ek baar chunni hogi.</p>
-    <input type="file" id="pem" accept=".pem,.key,.txt" />
-    <label class="remember"><input type="checkbox" id="remember" /> Is computer ke browser mein yaad rakhein (sirf apne personal computer par)</label>
+    <div id="pemBox">
+      <input type="file" id="pem" accept=".pem,.key,.txt" />
+      <label class="remember"><input type="checkbox" id="remember" /> Is computer ke browser mein yaad rakhein (sirf apne personal computer par)</label>
+    </div>
+    <div id="vaultBox" hidden>
+      <p class="hint">Is file ke andar aap ki key password se lock hai. Password likh kar Unlock dabayein.</p>
+      <input type="password" id="vaultPass" placeholder="Password" autocomplete="current-password" />
+      <div class="actions"><button class="primary" id="unlock">Unlock</button></div>
+    </div>
     <div class="status" id="keyStatus"></div>
   </div>
 
@@ -99,6 +106,7 @@
     </details>
   </div>
 </main>
+<script>window.ERP_VAULT = null;/*VAULT*/</script>
 <script>/*NACL*/</script>
 <script>/*CORE*/</script>
 <script>
@@ -134,12 +142,33 @@
     }
   }
 
+  // Personal build: the key is inside this file, locked with a password (AES-256-GCM, key from PBKDF2-SHA256).
+  async function unlockVault() {
+    const v = window.ERP_VAULT
+    const b = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0))
+    try {
+      const base = await crypto.subtle.importKey("raw", new TextEncoder().encode($("vaultPass").value), "PBKDF2", false, ["deriveKey"])
+      const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b(v.salt), iterations: v.iterations, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"])
+      const pem = new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b(v.iv) }, key, b(v.data)))
+      useKey(pem, false)
+      if (seed) { $("vaultPass").value = ""; $("vaultBox").hidden = true }
+    } catch {
+      say($("keyStatus"), "Password galat hai.", "bad")
+    }
+  }
+  if (window.ERP_VAULT) {
+    $("pemBox").hidden = true
+    $("vaultBox").hidden = false
+    $("unlock").addEventListener("click", unlockVault)
+    $("vaultPass").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockVault() })
+  }
+
   $("pem").addEventListener("change", async (e) => {
     const f = e.target.files[0]
     if (f) useKey(await f.text(), $("remember").checked)
   })
   $("remember").addEventListener("change", (e) => { if (!e.target.checked) { try { localStorage.removeItem(KEY_STORE) } catch {} } })
-  try { const saved = localStorage.getItem(KEY_STORE); if (saved) { $("remember").checked = true; useKey(saved, true) } } catch {}
+  try { const saved = window.ERP_VAULT ? null : localStorage.getItem(KEY_STORE); if (saved) { $("remember").checked = true; useKey(saved, true) } } catch {}
 
   $("machine").addEventListener("input", (e) => {
     const t = e.target.value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(0, 20)

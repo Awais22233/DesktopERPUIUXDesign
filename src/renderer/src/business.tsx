@@ -3,7 +3,7 @@ import type { Business } from "@shared/ipc"
 
 export type { Business }
 
-const EMPTY: Business = { name: "", tagline: "", owner: "", phone: "", email: "", address: "", city: "", logo: "", invoiceFooter: "" }
+const EMPTY: Business = { name: "", tagline: "", owner: "", phone: "", email: "", address: "", city: "", logo: "", invoiceFooter: "", accent: "navy" }
 
 type BusinessValue = {
   business: Business
@@ -28,6 +28,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.title = business.name || "Wholesale ERP"
   }, [business.name])
+
+  useEffect(() => {
+    document.documentElement.dataset.accent = business.accent
+  }, [business.accent])
 
   const saveBusiness = useCallback(async (b: Business) => {
     if (window.api) {

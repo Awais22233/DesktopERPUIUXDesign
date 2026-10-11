@@ -11,7 +11,7 @@ export const profiles: Record<ProfileId, { name: string; flags: Flags }> = {
   },
   cosmetics: {
     name: "Cosmetics",
-    flags: { than: false, recovery: false, cityWise: false, wholesalePrice: false, barcode: true, batch: true, expiry: true },
+    flags: { than: false, recovery: true, cityWise: false, wholesalePrice: false, barcode: true, batch: true, expiry: true },
   },
 }
 

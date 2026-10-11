@@ -494,6 +494,7 @@ export default function App() {
           <DataTable
             server={{ total: history.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: history.loading }}
             rows={rows}
+            rowClass={(r) => (r.status === "void" ? "row-void" : "")}
             onRow={(r) => open("invoice", r)}
             columns={[
               {
@@ -525,7 +526,7 @@ export default function App() {
                 key: "remaining",
                 label: purchase ? "Payable" : "Remaining",
                 right: true,
-                render: (r) => money(r.total - r.paid),
+                render: (r) => (r.status !== "void" && r.total - r.paid > 0 ? <strong className="amber-text">{money(r.total - r.paid)}</strong> : money(r.total - r.paid)),
               },
               {
                 key: "method",
@@ -648,7 +649,7 @@ export default function App() {
                 label: supplier ? "Payable" : "Outstanding",
                 right: true,
                 render: (p) => (
-                  <strong className={p.balance > 0 ? "red-text" : "green-text"}>
+                  <strong className={p.balance > 0 ? "red-text" : p.balance < 0 ? "green-text" : "zero-text"}>
                     {money(p.balance)}
                   </strong>
                 ),
@@ -786,7 +787,7 @@ export default function App() {
                 key: "stock",
                 label: "Qty",
                 right: true,
-                render: (p) => <strong>{p.stock}</strong>,
+                render: (p) => <strong className={p.stock === 0 ? "red-text" : p.stock <= p.minStock ? "amber-text" : ""}>{p.stock}</strong>,
               },
               {
                 key: "cost",

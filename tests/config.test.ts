@@ -11,14 +11,21 @@ describe("profiles and feature flags", () => {
     const cloth = await setup("cloth")
     expect(getConfig(cloth.db).flags).toMatchObject({ than: true, recovery: true, barcode: false, expiry: false })
     const cosm = await setup("cosmetics")
-    expect(getConfig(cosm.db).flags).toMatchObject({ than: false, recovery: false, barcode: true, expiry: true })
+    expect(getConfig(cosm.db).flags).toMatchObject({ than: false, recovery: true, barcode: true, expiry: true })
   })
 
   it("a disabled feature is rejected by the backend, not just hidden", async () => {
     const c = await setup("cosmetics")
+    setFlag(c.db, c.ownerId, "recovery", false) // the owner switched Recovery off in Settings > Features
     expect(() => recordReceipt(c.db, c.owner, { partyId: c.party, accountId: c.cash, method: "Cash", amount: 1 })).toThrowError(
       expect.objectContaining({ code: "FEATURE_DISABLED" }),
     )
+  })
+
+  it("cosmetics shops also sell on credit, so Recovery is on by default there", async () => {
+    const c = await setup("cosmetics")
+    expect(getConfig(c.db).flags.recovery).toBe(true)
+    expect(getConfig(c.db).flags.cityWise).toBe(false) // cloth-only features stay off
   })
 
   it("a feature cannot be turned off while records depend on it", async () => {

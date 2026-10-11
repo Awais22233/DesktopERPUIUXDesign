@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ensureBusinessName, getBusiness, setBusiness } from "../src/main/services/business"
 import { setup } from "./helpers"
 
-const full = (o: Record<string, string> = {}) => ({ name: "Faraz Cloth House", tagline: "Wholesale cloth", owner: "Faraz", phone: "0300", email: "", address: "Market road", city: "Ghotki", logo: "", invoiceFooter: "Thanks", ...o })
+const full = (o: Record<string, string> = {}) => ({ accent: "navy", name: "Faraz Cloth House", tagline: "Wholesale cloth", owner: "Faraz", phone: "0300", email: "", address: "Market road", city: "Ghotki", logo: "", invoiceFooter: "Thanks", ...o }) as Parameters<typeof setBusiness>[2]
 
 describe("dynamic business settings", () => {
   it("stores shop identity in the database so one installer serves any client", async () => {
@@ -24,5 +24,15 @@ describe("dynamic business settings", () => {
     expect(() => setBusiness(c.db, null, full({ logo: "data:image/png;base64," + "A".repeat(500_000) }))).toThrow(/too large/)
     expect(setBusiness(c.db, null, full({ logo: "data:image/png;base64,iVBORw0KGgo=" })).logo).toMatch(/^data:image\/png/)
     expect(setBusiness(c.db, null, full({ logo: "" })).logo).toBe("")
+  })
+  it("accent colour: navy is the default, a valid choice is kept, anything else is refused", async () => {
+    const c = await setup()
+    expect(getBusiness(c.db).accent).toBe("navy") // nothing stored yet (also an existing shop after the update)
+    expect(setBusiness(c.db, null, full({ accent: "teal" })).accent).toBe("teal")
+    expect(getBusiness(c.db).accent).toBe("teal")
+    expect(() => setBusiness(c.db, null, full({ accent: "pink" }))).toThrow(/Choose one of the listed colours/)
+    expect(getBusiness(c.db).accent).toBe("teal")
+    const { accent: _omit, ...withoutAccent } = full()
+    expect(setBusiness(c.db, null, withoutAccent as Parameters<typeof setBusiness>[2]).accent).toBe("teal") // older callers keep the colour
   })
 })

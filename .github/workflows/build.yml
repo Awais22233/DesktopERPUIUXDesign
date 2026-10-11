@@ -1,0 +1,63 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y xvfb poppler-utils
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run build
+      # Drives the real application window: first-run setup, sales, purchases, returns, reports, sign-in.
+      - run: xvfb-run -a pnpm e2e
+      - run: xvfb-run -a pnpm run pack:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wholesale-erp-linux-appimage
+          path: release/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      # Tests run inside Electron's runtime, so they use the exact native SQLite binary that ships.
+      - run: pnpm test
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          pnpm run pack:win *> pack.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $text = ((Get-Content pack.log -Tail 30) -join "`n")
+            if ($text.Length -gt 3500) { $text = $text.Substring($text.Length - 3500) }
+            $text = $text.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            Write-Host "::error title=Installer build failed::$text"
+            exit $code
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wholesale-erp-installer
+          path: release/*.exe
+          if-no-files-found: error

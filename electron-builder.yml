@@ -1,0 +1,36 @@
+appId: com.wholesale.erp
+productName: Wholesale ERP
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+npmRebuild: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Office
+  maintainer: Awais <awais22233@users.noreply.github.com>
+  artifactName: ${productName}-${version}-linux-x64.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+# Hardening of the shipped executable.
+electronFuses:
+  runAsNode: false                          # the app binary cannot be used as a general Node interpreter
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false      # no --inspect debugging of the shipped app
+  enableEmbeddedAsarIntegrityValidation: true  # edited app code is detected and refused
+  onlyLoadAppFromAsar: true

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'" />
+<title>License Key Generator</title>
+<style>
+  :root { --primary:#253b70; --bg:#f4f6fa; --card:#fff; --border:#dfe4ee; --muted:#7a8497; --text:#1c2740; --green:#1f8a5b; --red:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 "Segoe UI", Inter, Arial, sans-serif; }
+  main { max-width: 760px; margin: 32px auto 60px; padding: 0 18px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; display:flex; align-items:center; gap:9px; }
+  .num { width:22px; height:22px; border-radius:50%; background:var(--primary); color:#fff; font-size:12px; display:inline-flex; align-items:center; justify-content:center; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 2px 0 12px; }
+  label { display:block; font-weight:600; font-size:12.5px; margin: 12px 0 5px; }
+  input, select, textarea { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:7px; font:inherit; background:#fff; color:var(--text); }
+  input:focus, select:focus, textarea:focus { outline:2px solid #b9c5e6; border-color:#8fa1d3; }
+  textarea { font-family: Consolas, "Courier New", monospace; font-size:12.5px; resize:vertical; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  button { font:inherit; font-weight:600; padding:9px 16px; border-radius:7px; border:1px solid var(--border); background:#fff; color:var(--text); cursor:pointer; }
+  button.primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+  button.primary.big { width:100%; padding:12px; font-size:15px; margin-top:16px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .status { margin-top:10px; font-size:13px; }
+  .ok { color:var(--green); } .bad { color:var(--red); }
+  .key-box { margin-top:14px; }
+  .actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .remember { display:flex; align-items:center; gap:8px; margin-top:10px; font-weight:400; font-size:12.5px; color:var(--muted); }
+  .remember input { width:auto; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; }
+  .warn { background:#fff8e6; border:1px solid #f3dca0; color:#6b5200; border-radius:8px; padding:10px 12px; font-size:12.5px; margin-bottom:16px; }
+  details summary { cursor:pointer; font-weight:600; }
+  code { background:#eef1f8; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>License Key Generator</h1>
+  <p class="sub">Client ke computer ki Computer ID likhein aur key banayein. Ye page internet use nahi karta.</p>
+  <div class="warn">Ye page aap ki <b>private key</b> use karta hai. Isay sirf apne computer par kholein, kisi website par upload na karein, aur key file kisi ko na dein.</div>
+
+  <div class="card">
+    <h2><span class="num">1</span> Private key file</h2>
+    <p class="hint">Wohi file jo <code>private.pem</code> ya <code>erp-license-PRIVATE-KEY-keep-secret.pem</code> ke naam se hai. Har dafa ek baar chunni hogi.</p>
+    <input type="file" id="pem" accept=".pem,.key,.txt" />
+    <label class="remember"><input type="checkbox" id="remember" /> Is computer ke browser mein yaad rakhein (sirf apne personal computer par)</label>
+    <div class="status" id="keyStatus"></div>
+  </div>
+
+  <div class="card" id="formCard" style="opacity:.5; pointer-events:none">
+    <h2><span class="num">2</span> Client ki details</h2>
+    <label for="machine">Computer ID <span style="font-weight:400;color:var(--muted)">(client ki app ki pehli screen par likhi hoti hai)</span></label>
+    <input id="machine" placeholder="1AD5C-2124E-2806F-028AD" autocomplete="off" spellcheck="false" />
+    <label for="client">Client / shop ka naam</label>
+    <input id="client" placeholder="e.g. Faraz Cloth House" />
+    <div class="row">
+      <div>
+        <label for="profile">Business type</label>
+        <select id="profile"><option value="cloth">Cloth Wholesale</option><option value="cosmetics">Cosmetics</option></select>
+      </div>
+      <div>
+        <label for="expires">Khatam hone ki tareekh <span style="font-weight:400;color:var(--muted)">(khali = hamesha ke liye)</span></label>
+        <input id="expires" type="date" />
+      </div>
+    </div>
+    <button class="primary big" id="generate">Generate key</button>
+    <div class="status" id="genStatus"></div>
+    <div class="key-box" id="out" hidden>
+      <label for="key">License key</label>
+      <textarea id="key" rows="5" readonly></textarea>
+      <div class="actions">
+        <button id="copy">Copy key</button>
+        <button id="save">Save as text file</button>
+      </div>
+      <div class="status" id="copyStatus"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">3</span> Ab tak banai hui keys</h2>
+    <p class="hint">Ye list sirf is browser mein rehti hai. "Download list" se apna record save kar lein.</p>
+    <table id="history"><thead><tr><th>Date</th><th>Client</th><th>Type</th><th>Computer ID</th><th>Expiry</th></tr></thead><tbody></tbody></table>
+    <div class="actions"><button id="download">Download list (CSV)</button></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Kisi key ko check karein</summary>
+      <p class="hint">Koi key paste karein, ye bata dega kis client ke liye hai aur aap ki key se bani hai ya nahi.</p>
+      <textarea id="checkKey" rows="3" placeholder="ERP1...."></textarea>
+      <div class="actions"><button id="checkBtn">Check</button></div>
+      <div class="status" id="checkStatus"></div>
+    </details>
+  </div>
+</main>
+<script>/*NACL*/</script>
+<script>/*CORE*/</script>
+<script>
+(function () {
+  if (typeof document === "undefined" || !document.getElementById) return
+  const $ = (id) => document.getElementById(id)
+  const nacl = window.nacl || self.nacl
+  const Core = window.LicenseCore
+  const KEY_STORE = "erpLicensePrivatePem"
+  const LOG_STORE = "erpLicenseIssued"
+  let seed = null
+
+  const say = (el, text, cls) => { el.textContent = text; el.className = "status " + (cls || "") }
+  const log = () => { try { return JSON.parse(localStorage.getItem(LOG_STORE) || "[]") } catch { return [] } }
+  const draw = () => {
+    const rows = log().slice().reverse()
+    $("history").querySelector("tbody").innerHTML = rows.length
+      ? rows.map((r) => `<tr><td>${r.date}</td><td>${esc(r.client)}</td><td>${r.profile === "cloth" ? "Cloth" : "Cosmetics"}</td><td>${r.machineId}</td><td>${r.expires || "Never"}</td></tr>`).join("")
+      : `<tr><td colspan="5" style="color:#7a8497">Abhi koi key nahi banayi.</td></tr>`
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))
+
+  function useKey(pem, remember) {
+    try {
+      seed = Core.seedFromPem(pem)
+      say($("keyStatus"), "Key file theek hai. Fingerprint: " + Core.fingerprint(nacl, seed) + "  (har dafa yehi aana chahiye)", "ok")
+      $("formCard").style.opacity = 1
+      $("formCard").style.pointerEvents = "auto"
+      if (remember) { try { localStorage.setItem(KEY_STORE, pem) } catch {} }
+    } catch (e) {
+      seed = null
+      say($("keyStatus"), e.message, "bad")
+    }
+  }
+
+  $("pem").addEventListener("change", async (e) => {
+    const f = e.target.files[0]
+    if (f) useKey(await f.text(), $("remember").checked)
+  })
+  $("remember").addEventListener("change", (e) => { if (!e.target.checked) { try { localStorage.removeItem(KEY_STORE) } catch {} } })
+  try { const saved = localStorage.getItem(KEY_STORE); if (saved) { $("remember").checked = true; useKey(saved, true) } } catch {}
+
+  $("machine").addEventListener("input", (e) => {
+    const t = e.target.value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(0, 20)
+    e.target.value = (t.match(/.{1,5}/g) || []).join("-")
+  })
+
+  $("generate").addEventListener("click", () => {
+    try {
+      const r = Core.issue(nacl, seed, { machineId: $("machine").value, client: $("client").value, profile: $("profile").value, expires: $("expires").value })
+      $("key").value = r.key
+      $("out").hidden = false
+      say($("genStatus"), "Key ban gayi: " + r.payload.client + " (" + r.payload.id + ")", "ok")
+      say($("copyStatus"), "")
+      const l = log()
+      l.push({ date: r.payload.issuedAt.slice(0, 10), client: r.payload.client, profile: r.payload.profile, machineId: r.payload.machineId, expires: $("expires").value, id: r.payload.id })
+      try { localStorage.setItem(LOG_STORE, JSON.stringify(l)) } catch {}
+      draw()
+    } catch (e) {
+      $("out").hidden = true
+      say($("genStatus"), e.message, "bad")
+    }
+  })
+  $("copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("key").value); say($("copyStatus"), "Copy ho gayi. Ab client ko bhej dein.", "ok") }
+    catch { $("key").select(); say($("copyStatus"), "Key select ho gayi, Ctrl+C dabayein.", "") }
+  })
+  const download = (name, text, type) => {
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(new Blob([text], { type }))
+    a.download = name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+  }
+  $("save").addEventListener("click", () => download("license-key.txt", $("key").value, "text/plain"))
+  $("download").addEventListener("click", () => {
+    const rows = [["Date", "Client", "Type", "Computer ID", "Expiry", "License ID"], ...log().map((r) => [r.date, r.client, r.profile, r.machineId, r.expires || "", r.id])]
+    download("issued-licenses.csv", rows.map((r) => r.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(",")).join("\n"), "text/csv")
+  })
+  $("checkBtn").addEventListener("click", () => {
+    if (!seed) return say($("checkStatus"), "Pehle step 1 mein private key file chunein.", "bad")
+    const r = Core.check(nacl, seed, $("checkKey").value)
+    say($("checkStatus"), r.ok ? `Theek hai: ${r.payload.client}, ${r.payload.profile === "cloth" ? "Cloth" : "Cosmetics"}, Computer ID ${r.payload.machineId}, expiry ${r.payload.expiresAt ? r.payload.expiresAt.slice(0, 10) : "kabhi nahi"}` : r.reason, r.ok ? "ok" : "bad")
+  })
+  draw()
+})()
+</script>
+</body>
+</html>

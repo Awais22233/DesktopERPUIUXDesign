@@ -56,7 +56,12 @@ export function SalesWorkspace({
   accounts,
   onSave,
   onHistory,
+  onAddProduct,
+  onAddParty,
 }: {
+  /** Opens the "Add product" / "Add party" forms so a first sale never needs a trip to another screen. */
+  onAddProduct?: () => void
+  onAddParty?: () => void
   purchase?: boolean
   parties: Party[]
   walkInId?: string
@@ -64,7 +69,7 @@ export function SalesWorkspace({
   onSave: (sale: Transaction, print: boolean) => Promise<boolean>
   onHistory: () => void
 }) {
-  const { isEnabled } = useConfig()
+  const { isEnabled, profile } = useConfig()
   // The catalogue can hold tens of thousands of items, so the picker asks the engine for one page at a time.
   const known = useRef(new Map<string, Product>())
   const batchOn = purchase && (isEnabled("batch") || isEnabled("expiry"))
@@ -73,7 +78,8 @@ export function SalesWorkspace({
   const { data: result, loading: searching, error: searchError } = useRemote("products:list", { query: dq, activeOnly: true, pageSize: 24 })
   const found = result?.rows ?? []
   for (const p of found) known.current.set(p.id, p)
-  const [party, setParty] = useState("")
+  // Counter shops (cosmetics) mostly sell to whoever walks in; wholesalers choose the party every time, so no default there.
+  const [party, setParty] = useState(!purchase && profile === "cosmetics" && walkInId ? walkInId : "")
   const [cart, setCart] = useState<CartItem[]>([])
   const [method, setMethod] = useState("Cash")
   const [paid, setPaid] = useState("")
@@ -262,8 +268,21 @@ export function SalesWorkspace({
             {!found.length && !searching && (
               <div className="empty-state">
                 <Search size={28} />
-                <Heading level={3}>{searchError ? "Could not load products" : "No matching products"}</Heading>
-                <p>{searchError || "Try a product name or article number."}</p>
+                {!searchError && !dq && onAddProduct ? (
+                  <>
+                    <Heading level={3}>No products yet</Heading>
+                    <p>Add the items you sell, then come back to make your first sale.</p>
+                    <Button variant="primary" onClick={onAddProduct}>
+                      <Plus size={15} />
+                      Add your first product
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Heading level={3}>{searchError ? "Could not load products" : "No matching products"}</Heading>
+                    <p>{searchError || "Try a product name or article number."}</p>
+                  </>
+                )}
               </div>
             )}
             {(result?.total ?? 0) > found.length && (
@@ -378,7 +397,7 @@ export function SalesWorkspace({
               <div className="empty-state cart-empty">
                 <ShoppingIcon />
                 <Heading level={3}>Your invoice is ready to begin</Heading>
-                <p>Select a party, then click a product above to add it.</p>
+                <p>Click a product above to add it. Choose the {purchase ? "supplier" : "customer"} on the right before you save.</p>
               </div>
             )}
             <div className="panel-note">
@@ -410,6 +429,11 @@ export function SalesWorkspace({
                   </option>
                 ))}
               </Select>
+              {onAddParty && (
+                <button type="button" className="gs-link" style={{ paddingLeft: 0 }} onClick={onAddParty}>
+                  + New {purchase ? "supplier" : "customer"}
+                </button>
+              )}
             </Field>
             {selectedParty && (
               <div className="party-balance">
@@ -833,19 +857,6 @@ export function EntryForm({
               </Field>
             </div>
             <div className="form-grid">
-              <Field label="Category (optional)">
-                <Input name="category" list="category-list" defaultValue={prod?.category} />
-                <datalist id="category-list">
-                  {masters.categories.map((c) => (
-                    <option key={c.name} value={c.name} />
-                  ))}
-                </datalist>
-              </Field>
-              <Field label="Subcategory (optional)">
-                <Input name="subcategory" />
-              </Field>
-            </div>
-            <div className="form-grid">
               <Field label={isEnabled("than") ? "Colour" : "Variant (colour / type)"}>
                 <Input name="color" defaultValue={prod?.color} />
               </Field>
@@ -858,11 +869,6 @@ export function EntryForm({
                 </datalist>
               </Field>
             </div>
-            {isEnabled("than") && (
-              <Field label="Design">
-                <Input name="design" defaultValue={prod?.design} />
-              </Field>
-            )}
             <div className="form-grid">
               <Field label="Purchase price (Rs.)" required>
                 <Input name="cost" type="number" min="0" required defaultValue={prod?.cost} />
@@ -872,30 +878,51 @@ export function EntryForm({
               </Field>
             </div>
             <div className="form-grid">
-              {isEnabled("wholesalePrice") && (
-                <Field label="Wholesale price (Rs.)">
-                  <Input name="wholesale" type="number" min="0" defaultValue={prod?.wholesale} />
+              {!editing && (
+                <Field label={`Opening stock (${L.units})`} hint="Stock you already have before using the program. Valued at the purchase price.">
+                  <Input name="openingQty" type="number" min="0" step="1" placeholder="0" />
                 </Field>
               )}
-              <Field label="Minimum stock">
-                <Input name="minStock" type="number" min="0" step="1" defaultValue={prod?.minStock ?? 0} />
-              </Field>
-            </div>
-            <div className="form-grid">
-              <Field label="SKU / code">
-                <Input name="sku" defaultValue={prod?.sku} />
-              </Field>
               {(isEnabled("barcode") || !!prod?.barcode) && (
                 <Field label="Barcode" hint="Optional. Leave empty if this item has none.">
                   <Input name="barcode" defaultValue={prod?.barcode} />
                 </Field>
               )}
             </div>
-            {!editing && (
-              <Field label={`Opening stock (${L.units})`} hint="Stock you already have before using the program. Valued at the purchase price.">
-                <Input name="openingQty" type="number" min="0" step="1" placeholder="0" />
+            <details className="more-details" open={editing && !!(prod?.category || prod?.sku || prod?.design || prod?.minStock || prod?.wholesale)}>
+              <summary>More details (category, minimum stock{isEnabled("wholesalePrice") ? ", wholesale price" : ""}, SKU)</summary>
+              <div className="form-grid">
+                <Field label="Category (optional)">
+                  <Input name="category" list="category-list" defaultValue={prod?.category} />
+                  <datalist id="category-list">
+                    {masters.categories.map((c) => (
+                      <option key={c.name} value={c.name} />
+                    ))}
+                  </datalist>
+                </Field>
+                <Field label="Subcategory (optional)">
+                  <Input name="subcategory" />
+                </Field>
+              </div>
+              {isEnabled("than") && (
+                <Field label="Design">
+                  <Input name="design" defaultValue={prod?.design} />
+                </Field>
+              )}
+              <div className="form-grid">
+                {isEnabled("wholesalePrice") && (
+                  <Field label="Wholesale price (Rs.)">
+                    <Input name="wholesale" type="number" min="0" defaultValue={prod?.wholesale} />
+                  </Field>
+                )}
+                <Field label="Minimum stock" hint="You will be warned when stock falls to this level.">
+                  <Input name="minStock" type="number" min="0" step="1" defaultValue={prod?.minStock ?? 0} />
+                </Field>
+              </div>
+              <Field label="SKU / code">
+                <Input name="sku" defaultValue={prod?.sku} />
               </Field>
-            )}
+            </details>
             {editing && (
               <Field label="Status">
                 <Select name="active" defaultValue={prod?.active ? "Active" : "Inactive"}>

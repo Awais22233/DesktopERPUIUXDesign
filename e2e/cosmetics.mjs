@@ -1,7 +1,8 @@
 import { launch } from "./lib.mjs"
 
 const { page, step, shot, nav, finish } = await launch("cosmetics", "Glow Cosmetics")
-const inTen = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10)
+// The application keeps business dates in Pakistan time (UTC+5), so the test must too, or it is off by a day every evening.
+const inTen = new Date(Date.now() + 5 * 3_600_000 + 10 * 86_400_000).toISOString().slice(0, 10)
 
 await step("first-run owner setup", async () => {
   await page.waitForSelector("text=Create the owner account")
@@ -33,7 +34,7 @@ await step("add a product with size and barcode", async () => {
 })
 await step("add a supplier and receive stock with batch and expiry", async () => {
   await nav("Suppliers")
-  await page.getByRole("button", { name: /Add supplier/ }).click()
+  await page.getByRole("button", { name: /Add supplier/ }).first().click()
   await page.locator("input[name=name]").fill("Beauty Wholesale")
   await page.getByRole("button", { name: /Add party|Add supplier/ }).last().click()
   await page.waitForSelector("text=Beauty Wholesale")
@@ -50,7 +51,8 @@ await step("add a supplier and receive stock with batch and expiry", async () =>
 })
 await step("scanning a barcode adds the item; walk-in customer pays in full", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Walk-in customer" })
+  const chosen = await page.locator("select", { hasText: "Select party" }).evaluate((e) => e.selectedOptions[0]?.text)
+  if (chosen !== "Walk-in customer") throw new Error("a counter shop should start with the walk-in customer chosen, got: " + chosen)
   const search = page.getByPlaceholder(/Scan a barcode/)
   await search.fill("8901234567890")
   await search.press("Enter")

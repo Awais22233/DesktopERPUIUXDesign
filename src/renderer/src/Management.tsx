@@ -1,5 +1,6 @@
 import { useConfig, profiles, featureMeta } from "./config"
 import { BrandMark, useBusiness, type Business } from "./business"
+import { applyTextSize, readTextSize, type TextSize } from "./display"
 import { api } from "./backend"
 import type { BackupInfo } from "@shared/ipc"
 import type { Masters, ReportResult, ReturnRow } from "@shared/models"
@@ -376,6 +377,7 @@ export function Settings({
   const { business, saveBusiness } = useBusiness()
   const [logoDraft, setLogoDraft] = useState(business.logo)
   const [accentDraft, setAccentDraft] = useState<Business["accent"]>(business.accent)
+  const [textSize, setTextSize] = useState<TextSize>(readTextSize)
   const logoInput = useRef<HTMLInputElement>(null)
   const st = masters.settings
   const get = (k: string, d: string) => st[k] ?? d
@@ -535,6 +537,26 @@ export function Settings({
                       ))}
                     </div>
                     <small className="muted">Changes the buttons and highlights on screen. Printed invoices stay black and white. Press Save to keep it.</small>
+                  </Field>
+                  <Field label="Text size on this computer">
+                    <div className="accent-picker" role="group" aria-label="Text size">
+                      {TEXT_CHOICES.map(([id, label]) => (
+                        <button
+                          type="button"
+                          key={id}
+                          className="accent-option"
+                          style={{ "--sw": "var(--primary)" } as React.CSSProperties}
+                          aria-pressed={textSize === id}
+                          onClick={() => {
+                            setTextSize(id)
+                            applyTextSize(id)
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <small className="muted">Applies at once and is remembered on this computer only. Printed documents are not affected.</small>
                   </Field>
                 </>
               ) : section === "Features" ? (
@@ -1308,4 +1330,10 @@ const ACCENT_CHOICES: [Business["accent"], string, string][] = [
   ["teal", "Teal", "#0f6b7a"],
   ["purple", "Purple", "#5b3a8c"],
   ["maroon", "Maroon", "#8a2f3c"],
+]
+
+const TEXT_CHOICES: [TextSize, string][] = [
+  ["normal", "Normal"],
+  ["large", "Large"],
+  ["xlarge", "Extra large"],
 ]

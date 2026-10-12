@@ -95,7 +95,7 @@ const emptyStore: Store = {
   audits: [],
   returns: [],
   closings: [],
-  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [] },
+  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [], setup: { shopDetails: true, money: true, parties: true, products: true, firstSale: true } },
   masters: { accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
 }
 const navGroups: {
@@ -357,7 +357,7 @@ export default function App() {
       return
     }
     if (type === "party") {
-      const kind = page === "Suppliers" ? "supplier" : "customer"
+      const kind = page === "Suppliers" || page === "New Purchase" || page === "Purchases" ? "supplier" : "customer"
       const res = await run(() =>
         api("party:save", { kind, id: initial?.id, name: data.name!, city: data.city, phone: data.phone, whatsapp: data.whatsapp, area: data.area, address: data.address, notes: data.notes, limit: data.limit === undefined || data.limit === "" ? undefined : n("limit"), terms: data.terms === undefined || data.terms === "" ? null : n("terms"), active: data.active === undefined ? undefined : data.active === "Active", openingBalance: data.opening ? n("opening") : undefined }),
       )
@@ -495,6 +495,18 @@ export default function App() {
             server={{ total: history.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: history.loading }}
             rows={rows}
             rowClass={(r) => (r.status === "void" ? "row-void" : "")}
+            {...(!query && filter === "All statuses"
+              ? {
+                  empty: purchase ? "No purchases yet" : "No sales yet",
+                  emptyHint: purchase ? "Record the stock you buy from suppliers here." : "Your invoices will appear here as soon as you make a sale.",
+                  emptyAction: (
+                    <Button variant="primary" onClick={() => navigate(purchase ? "New Purchase" : "POS / Sales")}>
+                      <Plus size={15} />
+                      {purchase ? "New purchase" : "Make your first sale"}
+                    </Button>
+                  ),
+                }
+              : {})}
             onRow={(r) => open("invoice", r)}
             columns={[
               {
@@ -628,6 +640,18 @@ export default function App() {
           <DataTable
             rows={rows}
             pagination
+            {...(!query && filter === "All statuses"
+              ? {
+                  empty: supplier ? "No suppliers yet" : "No customers yet",
+                  emptyHint: supplier ? "Add the companies you buy from." : "Add your parties to track what they owe you. Enter their opening balance if they already owe you money.",
+                  emptyAction: (
+                    <Button variant="primary" onClick={() => open("party")}>
+                      <Plus size={15} />
+                      Add {supplier ? "supplier" : "party"}
+                    </Button>
+                  ),
+                }
+              : {})}
             onRow={(p) =>
               open(supplier ? "supplier-detail" : "party-detail", p)
             }
@@ -766,6 +790,18 @@ export default function App() {
           <DataTable
             rows={rows}
             server={{ total: inventory.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: inventory.loading }}
+            {...(!query && filter === "All statuses"
+              ? {
+                  empty: "No products yet",
+                  emptyHint: "Add your products with their prices. You can enter the stock you already have as opening stock.",
+                  emptyAction: session.can("catalog.manage") ? (
+                    <Button variant="primary" onClick={() => open("product")}>
+                      <Plus size={15} />
+                      Add your first product
+                    </Button>
+                  ) : undefined,
+                }
+              : {})}
             onRow={(p) => open("stock", p)}
             columns={[
               {
@@ -892,6 +928,18 @@ export default function App() {
             <DataTable
               rows={rows}
               pagination
+              {...(!query
+                ? {
+                    empty: "No payments received today",
+                    emptyHint: "When a customer pays you, record it here and it appears in this list with a receipt.",
+                    emptyAction: (
+                      <Button variant="primary" onClick={() => open("recovery")}>
+                        <Plus size={15} />
+                        Receive payment
+                      </Button>
+                    ),
+                  }
+                : {})}
               onRow={(c) => open("receipt", c)}
               columns={[
                 {
@@ -1357,6 +1405,8 @@ export default function App() {
             accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p)}
             onHistory={() => navigate("Sales History")}
+            onAddProduct={session.can("catalog.manage") ? () => open("product") : undefined}
+            onAddParty={() => open("party")}
           />
         )
       case "New Purchase":
@@ -1367,6 +1417,8 @@ export default function App() {
             accounts={store.masters.accounts.filter((a) => a.active)}
             onSave={(t, p) => saveTransaction(t, p, true)}
             onHistory={() => navigate("Purchases")}
+            onAddProduct={session.can("catalog.manage") ? () => open("product") : undefined}
+            onAddParty={() => open("party")}
           />
         )
       case "Sales History":

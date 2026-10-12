@@ -2,6 +2,7 @@ import { L, today } from "./data"
 import type { DashboardData } from "@shared/models"
 import { useConfig } from "./config"
 import { useState } from "react"
+import { Check } from "lucide-react"
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -50,6 +51,84 @@ type Props = {
   navigate: (page: string) => void
   open: (type: string, data?: unknown) => void
 }
+const SETUP_HIDDEN = "erp.setupHidden"
+const readHidden = () => {
+  try {
+    return localStorage.getItem(SETUP_HIDDEN) === "1"
+  } catch {
+    return false
+  }
+}
+
+/** First-day guide: shows what is done and what to do next. It disappears by itself once everything is done. */
+function GettingStarted({ setup, navigate, open }: { setup: DashboardData["setup"]; navigate: Props["navigate"]; open: Props["open"] }) {
+  const [hidden, setHidden] = useState(readHidden)
+  const steps = [
+    { key: "shopDetails", title: "Enter your shop details", hint: "Address and phone appear on every invoice.", cta: "Open settings", go: () => navigate("Settings") },
+    { key: "money", title: "Set up cash and bank", hint: "Add your bank account and the money you have today.", cta: "Open Cash & Bank", go: () => navigate("Cash & Bank") },
+    { key: "parties", title: "Add your customers", hint: "Enter each party with the balance they owe you, if any.", cta: "Add a party", go: () => open("party") },
+    { key: "products", title: "Add your products", hint: "Include the stock you already have as opening stock.", cta: "Add a product", go: () => open("product") },
+    { key: "firstSale", title: "Make your first sale", hint: "Pick a customer, add items and save.", cta: "New sale", go: () => navigate("POS / Sales") },
+  ] as const
+  const done = steps.filter((s) => setup[s.key]).length
+  if (hidden || done === steps.length) return null
+  const next = steps.find((s) => !setup[s.key])
+  return (
+    <section className="getting-started" aria-label="Getting started">
+      <div className="gs-head">
+        <div>
+          <strong>Getting started</strong>
+          <span>
+            {done} of {steps.length} steps done
+          </span>
+        </div>
+        <button
+          type="button"
+          className="gs-hide"
+          onClick={() => {
+            setHidden(true)
+            try {
+              localStorage.setItem(SETUP_HIDDEN, "1")
+            } catch {
+              /* hiding just lasts until the next start */
+            }
+          }}
+        >
+          Hide
+        </button>
+      </div>
+      <div className="gs-bar" aria-hidden>
+        <span style={{ width: `${(done / steps.length) * 100}%` }} />
+      </div>
+      <ol className="gs-steps">
+        {steps.map((s) => {
+          const ok = setup[s.key]
+          return (
+            <li key={s.key} className={`${ok ? "done" : ""} ${s === next ? "next" : ""}`}>
+              <span className="gs-mark">{ok ? <Check size={13} /> : null}</span>
+              <div>
+                <b>{s.title}</b>
+                {!ok && <small>{s.hint}</small>}
+              </div>
+              {!ok && s === next && (
+                <Button variant="primary" onClick={s.go}>
+                  {s.cta}
+                  <ArrowRight size={14} />
+                </Button>
+              )}
+              {!ok && s !== next && (
+                <button type="button" className="gs-link" onClick={s.go}>
+                  {s.cta}
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </section>
+  )
+}
+
 /** 0, 250, 500 ... for small shops; 1.5k, 25k ... for larger turnover. */
 function axisLabel(v: number, max: number): string {
   if (v < 1000) return String(Math.round(v))
@@ -134,6 +213,7 @@ export default function Dashboard({
           </Button>
         </div>
       </div>
+      <GettingStarted setup={d.setup} navigate={navigate} open={open} />
       <div className="kpi-grid">
         {kpis.map((k) => (
           <div className={`kpi-card kpi-${k.tone}`} key={k.title}>

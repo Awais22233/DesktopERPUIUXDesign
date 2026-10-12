@@ -131,5 +131,12 @@ export function buildDashboard(db: DB, today: string): DashboardData {
     recentPurchases: listDocs(db, { kind: "purchase", pageSize: 6 }).rows,
     expiring,
     cities,
+    setup: {
+      shopDetails: ["address", "city", "phone"].some((k) => getSetting(db, `business.${k}`, "") !== ""),
+      money: one("SELECT COUNT(*) v FROM account_entries WHERE kind='opening'") > 0 || one("SELECT COUNT(*) v FROM accounts WHERE type='bank'") > 0,
+      parties: one("SELECT COUNT(*) v FROM parties WHERE is_walk_in = 0") > 0,
+      products: one("SELECT COUNT(*) v FROM variants") > 0,
+      firstSale: one("SELECT COUNT(*) v FROM sales") > 0,
+    },
   }
 }

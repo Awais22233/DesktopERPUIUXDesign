@@ -125,6 +125,8 @@ export type DashboardData = {
   recentPurchases: Transaction[]
   expiring: { product: string; batch: string; expiry: string; qty: number; days: number }[]
   cities: { city: string; sales: number; recovery: number; outstanding: number; parties: number }[]
+  /** Which first-day steps are already done, for the "Getting started" checklist. */
+  setup: { shopDetails: boolean; money: boolean; parties: boolean; products: boolean; firstSale: boolean }
 }
 
 export type LedgerRow = { id: number; date: string; ref: string; description: string; debit: number; credit: number; balance: number }

@@ -220,6 +220,8 @@ export function DataTable<T extends object>({
   onRow,
   rowClass,
   empty = "No records found",
+  emptyHint,
+  emptyAction,
   pagination = false,
   server,
   plainHeader = false,
@@ -230,6 +232,10 @@ export function DataTable<T extends object>({
   /** Extra class for a row (for example a greyed-out cancelled invoice). */
   rowClass?: (row: T) => string
   empty?: string
+  /** Shown under the title when there is nothing at all yet (instead of the "try a different search" line). */
+  emptyHint?: string
+  /** A button that does the obvious next thing, for example "Add your first product". */
+  emptyAction?: ReactNode
   pagination?: boolean
   /** Column titles as plain text (no sort buttons): used for printed documents, where buttons do not repeat on later pages. */
   plainHeader?: boolean
@@ -317,7 +323,8 @@ export function DataTable<T extends object>({
         <div className="empty-state">
           <Inbox size={30} />
           <Heading level={3}>{empty}</Heading>
-          <p>Try a different search or add your first record.</p>
+          <p>{emptyHint ?? "Try a different search or add your first record."}</p>
+          {emptyAction}
         </div>
       )}
       {(pagination || server) && (

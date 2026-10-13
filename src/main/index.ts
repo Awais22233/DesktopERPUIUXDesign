@@ -1,5 +1,5 @@
-import { app, BrowserWindow, dialog, Menu, session, shell } from "electron"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
@@ -14,6 +14,7 @@ import { CHANNELS, type Channel } from "@shared/ipc"
 import { migrate } from "./db/migrate"
 import { migrations } from "./db/migrations"
 import { createBackup } from "./db/backup"
+import { readImage } from "./services/images"
 import { seedRoles } from "./services/auth"
 import { ensureConfig, getConfig, setFlag, setProfile } from "./services/config"
 import { ensureWalkInParty } from "./services/masterData"
@@ -31,8 +32,12 @@ const SMOKE = process.env.ERP_SMOKE === "1"
 const dataDir = process.env.ERP_DATA_DIR ?? join(app.getPath("userData"), "data")
 const dbFile = join(dataDir, "erp.db")
 const backupsDir = join(dataDir, "backups")
+const imagesDir = join(dataDir, "images")
 mkdirSync(dataDir, { recursive: true })
 initLogger(join(dataDir, "logs"))
+
+// Product photos are served to the window through this private scheme (never from the file system directly).
+protocol.registerSchemesAsPrivileged([{ scheme: "erp-image", privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
 let db: DB
 let backups: BackupManager
@@ -103,19 +108,46 @@ async function openSafely(): Promise<DB> {
 
 async function startDatabase(): Promise<void> {
   db = await openSafely()
-  try {
-    await migrate(db, migrations, {
+  const upgrade = () =>
+    migrate(db, migrations, {
       // A safety backup is always taken before upgrading an existing database.
       beforeMigrate: async () => void (await createBackup(db, backupsDir, "pre-migrate")),
     })
+  try {
+    await upgrade()
   } catch (err) {
-    fatal("Could not update the data file", `${(err as Error).message}\n\nYour data was not changed.`)
+    const message = (err as Error).message
+    // A data file written by a different (test) build of the application. Offer to set it aside, never to delete it.
+    if (!/was modified after it was applied/.test(message)) fatal("Could not update the data file", `${message}\n\nYour data was not changed.`)
+    const choice = dialog.showMessageBoxSync({
+      type: "warning",
+      title: "This data file belongs to a different version",
+      message: "This data file was created by a different build of the application and cannot be opened safely.",
+      detail: "Choose \"Keep it and start fresh\" only on a test computer. The old file is not deleted: it is renamed and kept in the data folder:\n" + dataDir + "\n\nIf this is a real business computer, choose Exit and contact support.",
+      buttons: ["Keep it and start fresh", "Exit"],
+      defaultId: 1,
+      cancelId: 1,
+    })
+    if (choice !== 0) {
+      app.exit(1)
+      throw new Error("User declined to start fresh")
+    }
+    db.close()
+    const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)
+    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(dbFile + suffix)) renameSync(dbFile + suffix, join(dataDir, `erp-old-${stamp}.db${suffix}`))
+    log("warn", `Set aside an incompatible data file as erp-old-${stamp}.db`)
+    db = openDatabase(dbFile)
+    try {
+      await upgrade()
+    } catch (err2) {
+      fatal("Could not create the data file", (err2 as Error).message)
+    }
   }
   seedRoles(db)
   ensureConfig(db, "cloth")
   ensureWalkInParty(db)
   seedDefaults(db)
-  backups = new BackupManager(db, backupsDir)
+  backups = new BackupManager(db, backupsDir, imagesDir)
   await backups.runIfDue()
   setInterval(() => void backups.runIfDue(), 3600 * 1000).unref()
 }
@@ -205,6 +237,7 @@ function registerIpc(): void {
     session: userSession,
     backups: () => backups,
     restore: restoreAndRestart,
+    imagesDir,
     chooseFolder: async () => {
       const r = win ? await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] }) : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] })
       return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]!
@@ -283,13 +316,17 @@ async function smoke(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  protocol.handle("erp-image", (req) => {
+    const buf = readImage(imagesDir, decodeURIComponent(new URL(req.url).pathname.slice(1)))
+    return buf ? new Response(new Uint8Array(buf), { headers: { "content-type": "image/jpeg", "cache-control": "max-age=31536000, immutable" } }) : new Response(null, { status: 404 })
+  })
   if (app.isPackaged) {
     Menu.setApplicationMenu(null)
     session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
       cb({
         responseHeaders: {
           ...details.responseHeaders,
-          "Content-Security-Policy": ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'"],
+          "Content-Security-Policy": ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: erp-image:; font-src 'self' data:; connect-src 'none'"],
         },
       })
     })

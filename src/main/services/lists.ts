@@ -70,6 +70,7 @@ export function mapProduct(v: Record<string, any>, wholesale: boolean): Product 
     minStock: v.min_stock,
     expiry: v.expiry ?? undefined,
     active: !!v.active,
+    image: v.image ?? undefined,
   }
 }
 

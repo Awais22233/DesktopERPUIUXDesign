@@ -6,6 +6,7 @@ import { SETTING_KEYS, fmtId, idNumber } from "@shared/models"
 import { audit, getSetting, setSetting, tx } from "./db/util"
 import { hashPassword } from "./services/auth"
 import { addAccount, addMaster, saveParty, saveProduct, setAccountActive } from "./services/catalog"
+import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
 import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment } from "./services/payments"
 import { postPurchase, voidPurchase } from "./services/purchases"
@@ -27,6 +28,8 @@ export interface Ctx {
   /** Replaces the live data file with a backup and restarts the application. */
   restore: (backupName: string) => Promise<void>
   chooseFolder: () => Promise<string | null>
+  /** Folder for product photos (the data folder's images/ directory). */
+  imagesDir?: string
 }
 
 type Handlers = { [C in Channel]?: (p: IpcContract[C]["req"]) => Promise<IpcContract[C]["res"]> | IpcContract[C]["res"] }
@@ -209,6 +212,13 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
         purchasePrice: paisa(p.cost), salePrice: paisa(p.rate), wholesalePrice: p.wholesale == null ? null : paisa(p.wholesale), minStock: p.minStock, active: p.active, openingQty: p.openingQty, openingCost: paisa(p.cost),
       })
       return { id: fmtId("VAR", id) }
+    },
+
+    "product:image": (p) => {
+      if (!ctx.imagesDir) throw new AppError("INVALID_STATE", "Photos are not available")
+      if (p.thumb && p.full) saveProductImage(db(), actor(), ctx.imagesDir, idNumber(p.id), p.thumb, p.full)
+      else removeProductImage(db(), actor(), ctx.imagesDir, idNumber(p.id))
+      return null
     },
 
     "return:sale": (p) => {

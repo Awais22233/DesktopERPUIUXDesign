@@ -38,6 +38,8 @@ export type Product = {
   minStock: number
   expiry?: string
   active: boolean
+  /** base name of the stored photo (see imageUrl), when the product has one */
+  image?: string
 }
 export type CartItem = { productId: string; name: string; color: string; size: string; qty: number; rate: number; discount: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
 export type Transaction = {

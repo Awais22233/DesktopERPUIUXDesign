@@ -54,6 +54,7 @@ import {
   SalesWorkspace,
   StockDetails,
 } from "./Workflows"
+import { ProductPhoto } from "./photo"
 import {
   Select,
   Action,
@@ -368,9 +369,12 @@ export default function App() {
       return
     }
     if (type === "product") {
-      const res = await run(() =>
-        api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined }),
-      )
+      const res = await run(async () => {
+        const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
+        if (data.photoThumb && data.photoFull) await api("product:image", { id: saved.id, thumb: data.photoThumb, full: data.photoFull })
+        else if (data.photoRemove && initial?.id) await api("product:image", { id: saved.id })
+        return saved
+      })
       if (res) {
         closeModal()
         notify(initial?.id ? "Product updated." : "Product added.")
@@ -808,11 +812,14 @@ export default function App() {
                 key: "name",
                 label: "Product / article",
                 render: (p) => (
-                  <div className="cell-two">
-                    <strong>{p.name}</strong>
-                    <span>
-                      {p.article} · {p.category}
-                    </span>
+                  <div className="cell-photo">
+                    <ProductPhoto product={p} className="row-photo" />
+                    <div className="cell-two">
+                      <strong>{p.name}</strong>
+                      <span>
+                        {p.article} · {p.category}
+                      </span>
+                    </div>
                   </div>
                 ),
               },

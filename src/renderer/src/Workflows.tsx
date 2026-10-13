@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useDebounced, useRemote } from "./remote"
 import { BrandMark, useBusiness } from "./business"
 import { useConfig } from "./config"
+import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
 import { api } from "./backend"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
@@ -11,6 +12,8 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  LayoutGrid,
+  List,
   CreditCard,
   FileText,
   History,
@@ -79,6 +82,23 @@ export function SalesWorkspace({
   const found = result?.rows ?? []
   for (const p of found) known.current.set(p.id, p)
   // Counter shops (cosmetics) mostly sell to whoever walks in; wholesalers choose the party every time, so no default there.
+  const [view, setView] = useState<"grid" | "list">(() => {
+    try {
+      const saved = localStorage.getItem("erp.posView")
+      if (saved === "grid" || saved === "list") return saved
+    } catch {
+      /* private mode: use the default */
+    }
+    return profile === "cosmetics" ? "grid" : "list"
+  })
+  function chooseView(v: "grid" | "list") {
+    setView(v)
+    try {
+      localStorage.setItem("erp.posView", v)
+    } catch {
+      /* not saved; still works for this session */
+    }
+  }
   const [party, setParty] = useState(!purchase && profile === "cosmetics" && walkInId ? walkInId : "")
   const [cart, setCart] = useState<CartItem[]>([])
   const [method, setMethod] = useState("Cash")
@@ -234,8 +254,31 @@ export function SalesWorkspace({
                 placeholder={isEnabled("barcode") ? "Scan a barcode or search by name…" : "Search by name, article or code…"}
               />
               <span className="key-hint">Enter to select</span>
+              <div className="view-toggle" role="group" aria-label="Product view">
+                <Action className={view === "grid" ? "active" : ""} aria-pressed={view === "grid"} title="Photo grid" onClick={() => chooseView("grid")}>
+                  <LayoutGrid size={15} />
+                </Action>
+                <Action className={view === "list" ? "active" : ""} aria-pressed={view === "list"} title="List" onClick={() => chooseView("list")}>
+                  <List size={15} />
+                </Action>
+              </div>
             </div>
-            <div className="product-picker">
+            {view === "grid" && found.length > 0 && (
+              <div className="product-grid">
+                {found.map((p) => (
+                  <Action className="product-card" key={p.id} disabled={!purchase && p.stock === 0} onClick={() => addProduct(p)}>
+                    <ProductPhoto product={p} size="t" className="card-photo" />
+                    <strong title={p.name}>{p.name}</strong>
+                    <span className="card-sub">{[p.company, p.size].filter(Boolean).join(" · ")}</span>
+                    <span className="card-price">{money(purchase ? p.cost : p.price)}</span>
+                    <small className={p.stock === 0 ? "red-text" : p.stock < 10 ? "amber-text" : "muted"}>
+                      {p.stock === 0 ? "Out of stock" : `${p.stock} ${L.units}`}
+                    </small>
+                  </Action>
+                ))}
+              </div>
+            )}
+            <div className="product-picker" hidden={view === "grid"}>
               {found.map((p) => (
                 <Action
                   className="product-option"
@@ -243,9 +286,9 @@ export function SalesWorkspace({
                   disabled={!purchase && p.stock === 0}
                   onClick={() => addProduct(p)}
                 >
-                  <span
+                  {p.image ? <ProductPhoto product={p} className="list-photo" /> : <span
                     className={`fabric-swatch swatch-${p.color.split(" ")[0].toLowerCase()}`}
-                  />
+                  />}
                   <span className="product-option-info">
                     <strong>{p.name}</strong>
                     <span>
@@ -607,6 +650,7 @@ export function EntryForm({
   const [method, setMethod] = useState(masters.paymentMethods[0] ?? "Cash")
   const [quantity, setQuantity] = useState("")
   const [confirm, setConfirm] = useState(false)
+  const [photo, setPhoto] = useState<PhotoChoice>({ kind: "keep" })
   const party = parties.find((p) => p.id === selected)
   const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
   const editing = !!initial?.id && (type === "party" || type === "product")
@@ -637,6 +681,12 @@ export function EntryForm({
       }
     }
     if ((type === "party" || type === "product" || type === "account") && !(data.name ?? data.article ?? "x").trim()) return setError("Enter a name.")
+    if (type === "product") {
+      if (photo.kind === "new") {
+        data.photoThumb = photo.thumb
+        data.photoFull = photo.full
+      } else if (photo.kind === "remove") data.photoRemove = "1"
+    }
     onSubmit(data)
   }
   const dateField = type !== "party" && type !== "user" && type !== "product" && type !== "account"
@@ -843,6 +893,7 @@ export function EntryForm({
         )}
         {type === "product" && (
           <>
+            <PhotoField product={prod} value={photo} onChange={setPhoto} />
             <div className="form-grid">
               <Field label={isEnabled("than") ? "Company / brand" : "Brand"} required>
                 <Input name="company" list="company-list" required defaultValue={prod?.company} />
@@ -1406,9 +1457,9 @@ export function StockDetails({
   return (
     <>
       <div className="stock-detail">
-        <span
+        {product.image ? <ProductPhoto product={product} size="f" className="detail-photo" /> : <span
           className={`fabric-swatch large-swatch swatch-${product.color.split(" ")[0].toLowerCase()}`}
-        />
+        />}
         <div>
           <Heading level={2}>{product.name}</Heading>
           <p>

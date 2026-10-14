@@ -320,8 +320,9 @@ app.whenReady().then(async () => {
     const buf = readImage(imagesDir, decodeURIComponent(new URL(req.url).pathname.slice(1)))
     return buf ? new Response(new Uint8Array(buf), { headers: { "content-type": "image/jpeg", "cache-control": "max-age=31536000, immutable" } }) : new Response(null, { status: 404 })
   })
-  if (app.isPackaged) {
-    Menu.setApplicationMenu(null)
+  if (app.isPackaged) Menu.setApplicationMenu(null)
+  // The tests set ERP_FORCE_CSP so they run under the same content policy as the installed application.
+  if (app.isPackaged || process.env.ERP_FORCE_CSP === "1") {
     session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
       cb({
         responseHeaders: {

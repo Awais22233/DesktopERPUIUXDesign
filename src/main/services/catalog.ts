@@ -162,6 +162,70 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
   })
 }
 
+export interface ColoursForm {
+  company: string
+  article: string
+  category?: string
+  subcategory?: string
+  design?: string
+  size?: string
+  unit?: string
+  purchasePrice: number
+  salePrice: number
+  wholesalePrice?: number | null
+  minStock?: number
+  colors: { color: string; openingQty?: number }[]
+}
+
+/**
+ * Adds one article in several colours in a single step: the same details, one product per colour.
+ * A colour that already exists for that article and size is skipped (and reported), never duplicated.
+ * Everything is saved in one transaction, so a failure leaves nothing half-created.
+ */
+export function saveProductColors(db: DB, actor: Actor, f: ColoursForm): { created: number[]; skipped: string[] } {
+  requirePermission(actor, "catalog.manage")
+  if (!Array.isArray(f.colors) || f.colors.length === 0) throw new AppError("VALIDATION", "Add at least one colour")
+  if (f.colors.length > 60) throw new AppError("VALIDATION", "Add at most 60 colours at a time")
+  const seen = new Set<string>()
+  const colors: { color: string; openingQty?: number }[] = []
+  for (const c of f.colors) {
+    const name = (c.color ?? "").trim()
+    if (!name) throw new AppError("VALIDATION", "A colour name is empty")
+    if (name.length > 60) throw new AppError("VALIDATION", `Colour name is too long: ${name.slice(0, 20)}…`)
+    if (c.openingQty !== undefined && (!Number.isInteger(c.openingQty) || c.openingQty < 0)) throw new AppError("VALIDATION", `Opening stock for ${name} must be a whole number`)
+    const key = name.toLowerCase()
+    if (seen.has(key)) throw new AppError("VALIDATION", `The colour "${name}" is listed twice`)
+    seen.add(key)
+    colors.push({ color: name, openingQty: c.openingQty })
+  }
+  return tx(db, () => {
+    const created: number[] = []
+    const skipped: string[] = []
+    const company = must(f.company, "Company / brand")
+    const article = must(f.article, "Article / item name")
+    for (const c of colors) {
+      const exists = db
+        .prepare(
+          `SELECT 1 FROM variants v JOIN items i ON i.id = v.item_id JOIN companies co ON co.id = i.company_id
+           WHERE co.name = ? AND i.name = ? AND lower(COALESCE(v.color,'')) = lower(?) AND COALESCE(v.size_label,'') = COALESCE(?, '')`,
+        )
+        .get(company, article, c.color, clean(f.size))
+      if (exists) {
+        skipped.push(c.color)
+        continue
+      }
+      created.push(
+        saveProduct(db, actor, {
+          company, article, category: f.category, subcategory: f.subcategory, design: f.design, size: f.size, unit: f.unit,
+          purchasePrice: f.purchasePrice, salePrice: f.salePrice, wholesalePrice: f.wholesalePrice, minStock: f.minStock,
+          color: c.color, openingQty: c.openingQty, openingCost: f.purchasePrice,
+        }),
+      )
+    }
+    return { created, skipped }
+  })
+}
+
 export function addAccount(db: DB, actor: Actor, input: { name: string; type: "cash" | "bank"; opening?: number }): number {
   requirePermission(actor, "settings.manage")
   const name = must(input.name, "Account name")

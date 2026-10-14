@@ -651,6 +651,8 @@ export function EntryForm({
   const [quantity, setQuantity] = useState("")
   const [confirm, setConfirm] = useState(false)
   const [photo, setPhoto] = useState<PhotoChoice>({ kind: "keep" })
+  const [multi, setMulti] = useState(false)
+  const [colours, setColours] = useState<{ name: string; qty: string }[]>([{ name: "", qty: "" }, { name: "", qty: "" }])
   const party = parties.find((p) => p.id === selected)
   const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
   const editing = !!initial?.id && (type === "party" || type === "product")
@@ -681,7 +683,17 @@ export function EntryForm({
       }
     }
     if ((type === "party" || type === "product" || type === "account") && !(data.name ?? data.article ?? "x").trim()) return setError("Enter a name.")
-    if (type === "product") {
+    if (type === "product" && multi && !editing) {
+      const rows = colours.filter((c) => c.name.trim() || c.qty.trim())
+      if (!rows.length) return setError("Add at least one colour.")
+      if (rows.some((c) => !c.name.trim())) return setError("Every row needs a colour name.")
+      if (rows.some((c) => c.qty.trim() && (!/^\d+$/.test(c.qty.trim())))) return setError("Opening stock must be a whole number (or left empty).")
+      const lower = rows.map((c) => c.name.trim().toLowerCase())
+      if (new Set(lower).size !== lower.length) return setError("A colour is listed twice.")
+      data.multi = "1"
+      data.colours = JSON.stringify(rows.map((c) => ({ color: c.name.trim(), openingQty: c.qty.trim() ? Number(c.qty) : undefined })))
+    }
+    if (type === "product" && !multi) {
       if (photo.kind === "new") {
         data.photoThumb = photo.thumb
         data.photoFull = photo.full
@@ -893,7 +905,7 @@ export function EntryForm({
         )}
         {type === "product" && (
           <>
-            <PhotoField product={prod} value={photo} onChange={setPhoto} />
+            {!multi && <PhotoField product={prod} value={photo} onChange={setPhoto} />}
             <div className="form-grid">
               <Field label={isEnabled("than") ? "Company / brand" : "Brand"} required>
                 <Input name="company" list="company-list" required defaultValue={prod?.company} />
@@ -907,10 +919,18 @@ export function EntryForm({
                 <Input name="article" required defaultValue={prod?.article} />
               </Field>
             </div>
+            {!editing && (
+              <Button type="button" variant="ghost" className="multi-toggle" onClick={() => setMulti(!multi)} aria-pressed={multi}>
+                {multi ? "← Add a single colour instead" : "+ Add several colours at once"}
+              </Button>
+            )}
+            {multi && !editing && <ColourRows rows={colours} onChange={setColours} label={isEnabled("than") ? "Colours" : "Variants"} />}
             <div className="form-grid">
-              <Field label={isEnabled("than") ? "Colour" : "Variant (colour / type)"}>
-                <Input name="color" defaultValue={prod?.color} />
-              </Field>
+              {!(multi && !editing) && (
+                <Field label={isEnabled("than") ? "Colour" : "Variant (colour / type)"}>
+                  <Input name="color" defaultValue={prod?.color} />
+                </Field>
+              )}
               <Field label={L.size} hint={isEnabled("than") ? "Type it, e.g. 40 meter" : "e.g. 180 ml"}>
                 <Input name="size" list="size-list" defaultValue={prod?.size} />
                 <datalist id="size-list">
@@ -929,12 +949,12 @@ export function EntryForm({
               </Field>
             </div>
             <div className="form-grid">
-              {!editing && (
+              {!editing && !multi && (
                 <Field label={`Opening stock (${L.units})`} hint="Stock you already have before using the program. Valued at the purchase price.">
                   <Input name="openingQty" type="number" min="0" step="1" placeholder="0" />
                 </Field>
               )}
-              {(isEnabled("barcode") || !!prod?.barcode) && (
+              {(isEnabled("barcode") || !!prod?.barcode) && !multi && (
                 <Field label="Barcode" hint="Optional. Leave empty if this item has none.">
                   <Input name="barcode" defaultValue={prod?.barcode} />
                 </Field>
@@ -1057,7 +1077,9 @@ export function EntryForm({
                   : type === "product"
                     ? editing
                       ? "Save changes"
-                      : "Add product"
+                      : multi
+                        ? "Add colours"
+                        : "Add product"
                     : type === "account"
                       ? "Add account"
                       : type === "user"
@@ -1515,6 +1537,41 @@ export function InvoicePreview({
         </Button>
       </div>
     </>
+  )
+}
+
+/** Rows of "colour name + opening stock" for adding one article in many colours at once. Pasting "Blue, Black, Maroon" makes three rows. */
+function ColourRows({ rows, onChange, label }: { rows: { name: string; qty: string }[]; onChange: (r: { name: string; qty: string }[]) => void; label: string }) {
+  function setName(i: number, value: string) {
+    if (/[,\n;]/.test(value)) {
+      const parts = value.split(/[,\n;]+/).map((p) => p.trim()).filter(Boolean)
+      if (parts.length) {
+        const next = [...rows]
+        next.splice(i, 1, ...parts.map((name, k) => ({ name, qty: k === 0 ? rows[i]!.qty : "" })))
+        // pasting a list replaces the untouched empty rows instead of leaving them behind
+        return onChange(next.filter((r, k) => r.name.trim() || r.qty.trim() || k < i))
+      }
+    }
+    onChange(rows.map((r, k) => (k === i ? { ...r, name: value } : r)))
+  }
+  return (
+    <div className="colour-rows">
+      <strong>{label}</strong>
+      <span className="muted">One row per colour. Opening stock is optional. You can also paste a list like Blue, Black, Maroon.</span>
+      {rows.map((r, i) => (
+        <div className="colour-row" key={i}>
+          <Input aria-label={`Colour ${i + 1}`} value={r.name} placeholder="e.g. Blue" onChange={(e) => setName(i, e.target.value)} />
+          <Input aria-label={`Opening stock of colour ${i + 1}`} type="number" min="0" step="1" value={r.qty} placeholder="Stock" onChange={(e) => onChange(rows.map((x, k) => (k === i ? { ...x, qty: e.target.value } : x)))} />
+          <Button type="button" variant="ghost" className="icon-button" aria-label={`Remove colour ${i + 1}`} disabled={rows.length <= 1} onClick={() => onChange(rows.filter((_, k) => k !== i))}>
+            <Trash2 size={14} />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" onClick={() => onChange([...rows, { name: "", qty: "" }])}>
+        <Plus size={14} />
+        Add another colour
+      </Button>
+    </div>
   )
 }
 

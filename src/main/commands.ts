@@ -5,7 +5,7 @@ import type { Channel, IpcContract, LineIn, PayIn } from "@shared/ipc"
 import { SETTING_KEYS, fmtId, idNumber } from "@shared/models"
 import { audit, getSetting, setSetting, tx } from "./db/util"
 import { hashPassword } from "./services/auth"
-import { addAccount, addMaster, saveParty, saveProduct, setAccountActive } from "./services/catalog"
+import { addAccount, addMaster, saveParty, saveProduct, saveProductColors, setAccountActive } from "./services/catalog"
 import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
 import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment } from "./services/payments"
@@ -214,6 +214,13 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       return { id: fmtId("VAR", id) }
     },
 
+    "product:colors": (p) => {
+      const r = saveProductColors(db(), actor(), {
+        company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, design: p.design, size: p.size, unit: p.unit,
+        purchasePrice: paisa(p.cost), salePrice: paisa(p.rate), wholesalePrice: p.wholesale == null ? null : paisa(p.wholesale), minStock: p.minStock, colors: p.colors,
+      })
+      return { created: r.created.map((id) => fmtId("VAR", id)), skipped: r.skipped }
+    },
     "product:image": (p) => {
       if (!ctx.imagesDir) throw new AppError("INVALID_STATE", "Photos are not available")
       if (p.thumb && p.full) saveProductImage(db(), actor(), ctx.imagesDir, idNumber(p.id), p.thumb, p.full)

@@ -528,18 +528,50 @@ td strong { color: #46526a; font-weight: 550; }
 .receipt-amount > span { font-size: 12px; color: #8b99af; display: block; }
 .receipt-amount strong { font-size: 37px; color: var(--primary); display: block; margin: 13px 0; letter-spacing: -1px; }
 .receipt-amount p { font-size: 11px; color: #8595b0; }
-/* The thermal receipt looks on screen exactly as it prints (same width, same type), so its measured height is the roll length. */
-.invoice-paper.thermal { margin: 23px auto; padding: 0; }
+/* Account summary (previous / this bill / total / paid / remaining) printed on every party bill. */
+.invoice-totals > .account-summary { display: block; margin-top: 10px; border: 1px solid #b8c2d2; border-radius: 4px; padding: 2px 10px; }
+.account-summary > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; font-size: 11px; border-bottom: 1px dashed #c9d1de; }
+.account-summary > div:last-child { border-bottom: 0; }
+.account-summary .sum-line { font-weight: 600; }
+.account-summary .grand strong { font-size: 15px; }
+.invoice-address { font-weight: 500; }
+
+/* The thermal receipt looks on screen exactly as it prints (same width, same type), so its measured height is the roll length.
+   Everything is pure black on white: a thermal head cannot print grey. */
+.invoice-paper.thermal { margin: 23px auto; padding: 0; font-size: 12px; background: #fff; }
+.invoice-paper.thermal, .invoice-paper.thermal * { color: #000 !important; }
 .invoice-paper.thermal.w80 { width: 74mm; }
-.invoice-paper.thermal.w58 { width: 52mm; }
-.thermal table { white-space: normal; font-size: 10px; }
-.thermal td, .thermal th { padding: 4px 3px; font-size: 10px; height: auto; }
-.thermal .cell-two strong, .thermal .cell-two span { font-size: 10px; }
-.thermal .invoice-title { flex-direction: column; gap: 8px; }
-.thermal .invoice-meta { flex-direction: column; gap: 15px; }
-.thermal .invoice-brand h2 { font-size: 19px; }
+.invoice-paper.thermal.w58 { width: 52mm; font-size: 11px; }
+.thermal .invoice-brand { flex-direction: column; justify-content: center; text-align: center; gap: 4px; }
+.thermal .invoice-brand .brand-mark { width: 40px; height: 40px; }
+.thermal .invoice-brand h2 { font-size: 20px; line-height: 1.2; }
+.thermal .invoice-brand p { font-size: 11px; margin-top: 2px; }
+.thermal .invoice-address { text-align: center; font-size: 11px; line-height: 1.5; margin: 6px 0 8px; }
+.thermal .invoice-title { flex-direction: row; justify-content: space-between; gap: 6px; padding: 6px 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
+.thermal .invoice-title h3 { font-size: 12px; letter-spacing: .5px; }
+.thermal .invoice-title span { font-size: 12px; font-weight: 700; }
+.thermal .invoice-meta { flex-direction: column; gap: 3px; padding: 7px 0; border-bottom: 1px dashed #000; }
+.thermal .invoice-meta > div { gap: 2px; }
+.thermal .invoice-meta span { font-size: 11px; }
+.thermal .invoice-meta strong { font-size: 14px; }
+.thermal .receipt-lines { padding: 4px 0; border-bottom: 1px dashed #000; }
+.thermal .rl { padding: 5px 0; border-bottom: 1px dotted #777; }
+.thermal .rl:last-child { border-bottom: 0; }
+.thermal .rl-name { display: block; font-size: 12px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.thermal .rl-sub { display: block; font-size: 10px; }
+.thermal .rl-calc { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-top: 1px; }
+.thermal .rl-calc strong { font-weight: 700; white-space: nowrap; }
+.thermal .invoice-totals { width: 100%; margin: 6px 0 8px; }
+.thermal .invoice-totals > div { padding: 4px 0; border-bottom: 0; font-size: 12px; }
+.thermal .invoice-totals > div.grand strong { font-size: 15px; }
+.thermal .invoice-totals > .account-summary { border: 1px solid #000; border-radius: 0; padding: 2px 6px; }
+.thermal .account-summary > div { padding: 4px 0; font-size: 12px; border-bottom: 1px dotted #000; }
+.thermal .account-summary > div:last-child { border-bottom: 0; }
+.thermal .account-summary > .grand { border-top: 1px solid #000; margin-top: 2px; padding-top: 5px; }
+.thermal .receipt-amount { padding: 8px 0; background: none; border: 0; border-bottom: 1px dashed #000; }
+.thermal .receipt-amount strong { font-size: 24px; margin: 4px 0; }
+.thermal .invoice-note { text-align: center; font-size: 11px; line-height: 1.5; margin-top: 8px; padding-top: 6px; border-top: 1px dashed #000; }
 .thermal .invoice-signature { display: none; }
-.thermal .invoice-totals { width: 100%; }
 .notification-item { display: flex; align-items: flex-start; gap: 14px; padding: 23px; border-bottom: 1px solid var(--border); color: #8d9ab0; }
 .notification-item strong { font-size: 12px; color: #5e718e; }
 .notification-item p { font-size: 11px; margin: 9px 0 15px; line-height: 1.7; }
@@ -734,3 +766,7 @@ td strong { color: #46526a; font-weight: 550; }
 .photo-box img { width: 100%; height: 100%; object-fit: cover; }
 .photo-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .photo-buttons { display: flex; gap: 6px; }
+
+.invoice-totals strong { white-space: nowrap; }
+.invoice-paper.thermal.w58 .invoice-totals > div.grand strong, .invoice-paper.thermal.w58 .account-summary .grand strong { font-size: 13px; }
+.thermal .invoice-totals > div.grand > span:first-child, .thermal .account-summary .grand > span:first-child { font-weight: 700; }

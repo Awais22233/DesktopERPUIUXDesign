@@ -101,3 +101,15 @@ export function profitSummary(db: DB, from: string, to: string): ProfitSummary {
   const gross = netSales - cogs
   return { sales, returns, netSales, cogs, grossProfit: gross, expenses, writeOffs, priceDifferences, netProfit: gross - expenses - writeOffs + priceDifferences }
 }
+
+/**
+ * The party's balance just before and just after one document, read from the ledger (so a reprint
+ * months later shows what the bill showed on the day). Positive = the party owes us (customer) or we owe them (supplier).
+ */
+export function balanceAround(db: DB, kind: "customer" | "supplier", partyId: number, sourceType: string, sourceId: number): { balanceBefore: number; balanceAfter: number } | {} {
+  const span = db.prepare("SELECT MIN(id) AS lo, MAX(id) AS hi FROM ledger_entries WHERE source_type = ? AND source_id = ? AND kind NOT IN ('sale_void','purchase_void')").get(sourceType, sourceId) as { lo: number | null; hi: number | null }
+  if (span.lo === null || span.hi === null) return {}
+  const sign = kind === "customer" ? "debit - credit" : "credit - debit"
+  const sum = (cond: string, id: number) => (db.prepare(`SELECT COALESCE(SUM(${sign}),0) AS b FROM ledger_entries WHERE party_kind = ? AND party_id = ? AND id ${cond} ?`).get(kind, partyId, id) as { b: number }).b
+  return { balanceBefore: sum("<", span.lo) / 100, balanceAfter: sum("<=", span.hi) / 100 }
+}

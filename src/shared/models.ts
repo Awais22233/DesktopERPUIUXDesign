@@ -59,8 +59,14 @@ export type Transaction = {
   invoiceDiscount?: number
   status?: "completed" | "void"
   user?: string
+  /** time of day the bill was made (business time) */
+  time?: string
+  /** the party's balance just before and after this bill (positive = they owe us / we owe them) */
+  balanceBefore?: number
+  balanceAfter?: number
+  walkIn?: boolean
 }
-export type Collection = { id: string; party: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string }
+export type Collection = { id: string; party: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string; balanceBefore?: number; balanceAfter?: number }
 export type Expense = { id: string; category: string; amount: number; account: string; date: string; notes: string; user: string }
 export type Movement = { id: string; date: string; type: string; quantity: number; productId: string; reason: string }
 export type AccountEntry = { id: string; date: string; account: string; description: string; incoming: number; outgoing: number; type: string }

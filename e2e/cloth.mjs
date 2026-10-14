@@ -216,6 +216,31 @@ await step("text size: Large applies at once, is remembered and the layout still
   await nav("Settings")
   await page.locator(".accent-option", { hasText: "Normal" }).click()
 })
+await step("one article in several colours is added in one go; an existing colour is skipped", async () => {
+  await nav("Inventory")
+  const open = async () => {
+    await page.getByRole("button", { name: "Add product" }).first().click()
+    await page.locator("input[name=company]").fill("Gul Ahmed")
+    await page.locator("input[name=article]").fill("Lawn 55")
+    await page.locator("input[name=size]").fill("40 meter")
+    await page.locator("input[name=cost]").fill("900")
+    await page.locator("input[name=rate]").fill("1300")
+    await page.getByRole("button", { name: /Add several colours/ }).click()
+  }
+  await open()
+  // pasting a list makes one row per colour
+  await page.getByLabel("Colour 1", { exact: true }).fill("Blue, Black, Maroon")
+  await page.getByLabel("Opening stock of colour 1", { exact: true }).fill("12")
+  if ((await page.getByRole("textbox", { name: /^Colour \d$/ }).count()) !== 3) throw new Error("pasting three colours should make three rows")
+  await page.getByRole("button", { name: "Add colours" }).click()
+  await page.waitForSelector("text=3 colours added")
+  for (const c of ["Blue", "Black", "Maroon"]) await page.waitForSelector(`text=Lawn 55 ${c}`)
+  await open()
+  await page.getByLabel("Colour 1", { exact: true }).fill("blue, Green")
+  await page.getByRole("button", { name: "Add colours" }).click()
+  await page.waitForSelector("text=/1 colour added.*skipped: blue/")
+  await page.waitForSelector("text=Lawn 55 Green")
+})
 await step("sign out, wrong password refused, sign in again", async () => {
   await page.getByTitle("Lock workspace").click()
   await page.getByRole("button", { name: /Sign out|Lock|Confirm/ }).last().click()

@@ -770,3 +770,9 @@ td strong { color: #46526a; font-weight: 550; }
 .invoice-totals strong { white-space: nowrap; }
 .invoice-paper.thermal.w58 .invoice-totals > div.grand strong, .invoice-paper.thermal.w58 .account-summary .grand strong { font-size: 13px; }
 .thermal .invoice-totals > div.grand > span:first-child, .thermal .account-summary .grand > span:first-child { font-weight: 700; }
+
+/* ---------- Add several colours ---------- */
+.multi-toggle { align-self: flex-start; margin: 2px 0 10px; color: var(--primary); }
+.colour-rows { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 12px; border: 1px dashed var(--border); border-radius: 8px; background: var(--background); }
+.colour-row { display: grid; grid-template-columns: 1fr 110px 34px; gap: 8px; align-items: center; }
+.colour-rows > .btn { align-self: flex-start; }

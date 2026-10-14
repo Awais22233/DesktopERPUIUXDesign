@@ -378,6 +378,16 @@ export default function App() {
       }
       return
     }
+    if (type === "product" && data.multi) {
+      const list = JSON.parse(data.colours ?? "[]") as { color: string; openingQty?: number }[]
+      const res = await run(() => api("product:colors", { company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, design: data.design, size: data.size, unit: data.unit, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, colors: list }))
+      if (res && typeof res === "object") {
+        closeModal()
+        const r = res as { created: string[]; skipped: string[] }
+        notify(`${r.created.length} ${r.created.length === 1 ? "colour" : "colours"} added.${r.skipped.length ? ` Already existed, skipped: ${r.skipped.join(", ")}.` : ""}`)
+      }
+      return
+    }
     if (type === "product") {
       const res = await run(async () => {
         const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })

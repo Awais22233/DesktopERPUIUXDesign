@@ -1,7 +1,8 @@
 import type { DB } from "../db/connection"
 import { getSetting } from "../db/util"
 import { fmtId, idNumber, type CartItem, type Movement, type Product, type Transaction } from "@shared/models"
-import { bizDate, docLabel } from "./snapshot"
+import { bizDate, bizTime, docLabel } from "./snapshot"
+import { balanceAround } from "./queries"
 
 /**
  * Server-side lists. The renderer never holds the whole catalogue or the whole history: it asks for one
@@ -183,6 +184,8 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
     .all(...ids) as { doc: number; account: string; method: string }[]
   const firstPay = new Map<number, { account: string; method: string }>()
   for (const p of pays) if (!firstPay.has(p.doc)) firstPay.set(p.doc, p)
+  const walkIns = new Set<number>()
+  if (sale) for (const w of db.prepare("SELECT id FROM parties WHERE is_walk_in = 1").all() as { id: number }[]) walkIns.add(w.id)
   return rows.map((x) => {
     const ls = byDoc.get(x.id) ?? []
     const fp = firstPay.get(x.id)
@@ -192,6 +195,7 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
       party: x.party,
       partyId: fmtId(sale ? "PTY" : "SUP", x.pid),
       date: bizDate(x.ts, off),
+      time: bizTime(x.ts, off),
       items: ls.reduce((s, l) => s + l.qty, 0),
       total: r(x.total),
       paid: r(x.paid),
@@ -203,6 +207,8 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
       status: x.status,
       kind,
       user: x.usr ?? "",
+      walkIn: walkIns.has(x.pid),
+      ...(walkIns.has(x.pid) ? {} : balanceAround(db, sale ? "customer" : "supplier", x.pid, sale ? "sale" : "purchase", x.id)),
     } as Transaction
   })
 }

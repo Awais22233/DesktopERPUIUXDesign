@@ -1252,6 +1252,13 @@ export function InvoicePreview({
   const paperRef = useRef<HTMLDivElement>(null)
   const [rollMm, setRollMm] = useState(0)
   const thermal = layout === "Thermal receipt"
+  const doc = transaction ?? collection
+  const before = doc?.balanceBefore ?? 0
+  const after = doc?.balanceAfter ?? 0
+  const hasBalance = !transaction?.walkIn && doc?.balanceBefore !== undefined && doc?.balanceAfter !== undefined
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  /** A negative balance means the party has paid in advance: say so instead of printing a minus sign. */
+  const balText = (n: number) => (n < 0 ? `${money(-n)} advance` : money(n))
   useEffect(() => {
     const el = paperRef.current
     if (!thermal || !el) return
@@ -1314,9 +1321,19 @@ export function InvoicePreview({
           </div>
         </div>
         <p className="invoice-address">
-          {business.address}
-          <br />
-          {[business.phone, business.email].filter(Boolean).join(" · ")}
+          {[business.address, business.city && !business.address.toLowerCase().includes(business.city.toLowerCase()) ? business.city : ""].filter(Boolean).join(", ")}
+          {business.phone && (
+            <>
+              <br />
+              Phone: {business.phone}
+            </>
+          )}
+          {business.email && (
+            <>
+              <br />
+              {business.email}
+            </>
+          )}
         </p>
         <div className="invoice-title">
           <Heading level={3}>
@@ -1330,11 +1347,14 @@ export function InvoicePreview({
         </div>
         <div className="invoice-meta">
           <div>
-            <span>{receipt ? "Received from" : "Bill to"}</span>
+            <span>{receipt ? "Received from" : purchase ? "Supplier" : "Bill to"}</span>
             <strong>{transaction?.party || collection?.party}</strong>
           </div>
           <div>
-            <span>Date: {transaction?.date || collection?.date}</span>
+            <span>
+              Date: {transaction?.date || collection?.date}
+              {(transaction?.time || collection?.time) && ` · ${transaction?.time || collection?.time}`}
+            </span>
             <span>Prepared by: {transaction?.user || collection?.user || "—"}</span>
           </div>
         </div>
@@ -1345,6 +1365,22 @@ export function InvoicePreview({
             <p>
               {collection!.method} · {collection!.account}
             </p>
+          </div>
+        ) : thermal ? (
+          <div className="receipt-lines">
+            {(transaction?.lines ?? []).map((l, i) => (
+              <div className="rl" key={`${l.productId}-${i}`}>
+                <strong className="rl-name">{l.name}</strong>
+                {(l.size || (l.color && !l.name.endsWith(l.color))) && <span className="rl-sub">{[l.size, l.color && !l.name.endsWith(l.color) ? l.color : ""].filter(Boolean).join(" · ")}</span>}
+                <div className="rl-calc">
+                  <span>
+                    {l.qty} × {money(l.rate)}
+                    {l.discount > 0 && ` − ${money(l.discount)}`}
+                  </span>
+                  <strong>{money(l.qty * l.rate - l.discount)}</strong>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <DataTable
@@ -1399,18 +1435,61 @@ export function InvoicePreview({
               </>
             )}
             <div className="grand">
-              <span>Total</span>
+              <span>Bill total</span>
               <strong>{money(transaction?.total || 0)}</strong>
             </div>
-            <div>
-              <span>Paid · {transaction?.method}</span>
-              <span>{money(transaction?.paid || 0)}</span>
-            </div>
-            <div>
-              <span>Remaining balance</span>
-              <strong>
-                {money((transaction?.total || 0) - (transaction?.paid || 0))}
-              </strong>
+            {hasBalance ? (
+              <div className="account-summary" aria-label="Account summary">
+                <div>
+                  <span>Previous balance</span>
+                  <span>{balText(before)}</span>
+                </div>
+                <div>
+                  <span>This bill</span>
+                  <span>+ {money(transaction?.total || 0)}</span>
+                </div>
+                <div className="sum-line">
+                  <span>Total payable</span>
+                  <strong>{balText(round2(before + (transaction?.total || 0)))}</strong>
+                </div>
+                <div>
+                  <span>Paid{transaction?.method && transaction.paid > 0 && !["Partial", "Credit"].includes(transaction.method) ? ` · ${transaction.method}` : ""}</span>
+                  <span>− {money(transaction?.paid || 0)}</span>
+                </div>
+                <div className="grand">
+                  <span>Remaining balance</span>
+                  <strong>{balText(after)}</strong>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <span>Paid · {transaction?.method}</span>
+                  <span>{money(transaction?.paid || 0)}</span>
+                </div>
+                <div>
+                  <span>Remaining balance</span>
+                  <strong>{money((transaction?.total || 0) - (transaction?.paid || 0))}</strong>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {receipt && hasBalance && (
+          <div className="invoice-totals">
+            <div className="account-summary" aria-label="Account summary">
+              <div>
+                <span>Previous balance</span>
+                <span>{balText(before)}</span>
+              </div>
+              <div>
+                <span>Received now</span>
+                <span>− {money(collection!.amount)}</span>
+              </div>
+              <div className="grand">
+                <span>Remaining balance</span>
+                <strong>{balText(after)}</strong>
+              </div>
             </div>
           </div>
         )}
@@ -1420,7 +1499,7 @@ export function InvoicePreview({
           {business.invoiceFooter || "Thank you for your business."}
         </div>
         <div className="invoice-signature">
-          <span>Customer signature</span>
+          <span>{receipt ? "Received by" : "Customer signature"}</span>
           <span>Authorized signature</span>
         </div>
       </div>

@@ -307,7 +307,17 @@ export default function App() {
     if (!res) return false
     const warning = (res as { warnings?: string[] }).warnings?.[0]
     notify(warning ?? (purchase ? `Purchase ${res.id} saved.` : `Sale ${res.id} saved.`))
-    if (print) open("invoice", { ...t, id: res.id, kind: purchase ? "purchase" : "sale", user: session.user.name })
+    if (print) {
+      // Re-read the saved bill so it carries the party's balance before and after, exactly as it will on every reprint.
+      let saved: Transaction = { ...t, id: res.id, kind: purchase ? "purchase" : "sale", user: session.user.name }
+      try {
+        const fresh = await api("docs:list", { kind: purchase ? "purchase" : "sale", no: res.id, pageSize: 1 })
+        if (fresh.rows[0]) saved = fresh.rows[0]
+      } catch {
+        /* the bill is saved; the preview falls back to what was entered */
+      }
+      open("invoice", saved)
+    }
     return true
   }
 
@@ -323,7 +333,7 @@ export default function App() {
       closeModal()
       if (supplier) return notify("Supplier payment recorded.")
       notify(`Payment ${res.id} received.`)
-      open("receipt", { id: res.id, party: party?.name ?? "", amount: n("amount"), method: data.method!, account: data.account!, date: data.date || today, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), user: session.user.name, notes: data.notes || "" } satisfies Collection)
+      open("receipt", { id: res.id, party: party?.name ?? "", amount: n("amount"), method: data.method!, account: data.account!, date: data.date || today, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), user: session.user.name, notes: data.notes || "", ...(party ? { balanceBefore: party.balance, balanceAfter: Math.round((party.balance - n("amount")) * 100) / 100 } : {}) } satisfies Collection)
       return
     }
     if (type === "expense") {

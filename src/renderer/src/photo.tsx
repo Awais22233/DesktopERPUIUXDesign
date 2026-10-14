@@ -31,19 +31,19 @@ export interface PickedPhoto {
   preview: string
 }
 
+/** Reads the picked file as a data: URL (the installed app's content policy allows data: images but not blob: ones). */
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      resolve(img)
+    const bad = () => reject(new Error("That file could not be read as a picture. Choose a JPG, PNG or WebP photo."))
+    const reader = new FileReader()
+    reader.onerror = bad
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = bad
+      img.src = String(reader.result)
     }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error("That file could not be read as a picture. Choose a JPG, PNG or WebP photo."))
-    }
-    img.src = url
+    reader.readAsDataURL(file)
   })
 }
 

@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { jpegSize, mirrorImages, readImage, removeProductImage, saveProductImage } from "../src/main/services/images"
+import { jpegSize, mirrorImages, readImage, removeProductImage, saveProductImage, sweepImages } from "../src/main/services/images"
 import { listProducts } from "../src/main/services/lists"
 import { setup } from "./helpers"
 
@@ -32,11 +32,17 @@ describe("product photos", () => {
 
     const next = saveProductImage(db, owner, d, blue, b64(fakeJpeg(100, 100)), b64(fakeJpeg(600, 600)))
     expect(next).not.toBe(base)
-    expect(readdirSync(d).sort()).toEqual([`${next}-f.jpg`, `${next}-t.jpg`])
+    expect((db.prepare("SELECT image FROM variants WHERE id = ?").get(blue) as { image: string | null }).image).toBe(next)
+    // the replaced photo is kept for a while (an older backup of the data may still point at it)
+    expect(readdirSync(d).sort()).toEqual([`${base}-f.jpg`, `${base}-t.jpg`, `${next}-f.jpg`, `${next}-t.jpg`].sort())
 
     removeProductImage(db, owner, d, blue)
-    expect(readdirSync(d)).toEqual([])
     expect((db.prepare("SELECT image FROM variants WHERE id = ?").get(blue) as { image: string | null }).image).toBeNull()
+    // photos nobody refers to any more are swept only after 30 days; stale temp files after one day
+    writeFileSync(join(d, "9-aaaaaaaa-t.jpg.tmp"), "x")
+    expect(sweepImages(db, d, 30)).toBe(0)
+    expect(sweepImages(db, d, 30, Date.now() + 31 * 86400_000)).toBe(5)
+    expect(readdirSync(d)).toEqual([])
   })
 
   it("refuses oversized, wrong-format and unauthorised photos and leaves nothing behind", async () => {
@@ -70,5 +76,17 @@ describe("product photos", () => {
     expect(mirrorImages(d, target)).toBe(0)
     saveProductImage(db, owner, d, black, b64(fakeJpeg(100, 100)), b64(fakeJpeg(500, 500)))
     expect(mirrorImages(d, target)).toBe(2)
+  })
+
+  it("repairs a backup copy that was cut short", async () => {
+    const { db, owner, blue } = await setup()
+    const d = dir()
+    const target = join(dir(), "images")
+    const base = saveProductImage(db, owner, d, blue, b64(fakeJpeg(100, 100, 500)), b64(fakeJpeg(500, 500, 900)))
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, `${base}-f.jpg`), "torn") // a copy interrupted by a power cut
+    expect(mirrorImages(d, target)).toBe(2)
+    expect(readFileSync(join(target, `${base}-f.jpg`)).equals(readFileSync(join(d, `${base}-f.jpg`)))).toBe(true)
+    expect(readdirSync(target).some((n) => n.endsWith(".tmp"))).toBe(false)
   })
 })

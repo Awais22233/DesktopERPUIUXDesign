@@ -53,4 +53,26 @@ describe("balance printed on every bill", () => {
     expect(d.walkIn).toBe(true)
     expect(d.balanceBefore).toBeUndefined()
   })
+
+  it("a backdated bill agrees with the party statement (ordered by date, then entry number)", async () => {
+    const c = await setup()
+    stock(c)
+    const today = postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: c.blue, qty: 2, rate: 150_000 }], payments: [] }) // 3,000 today
+    const earlier = postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: c.blue, qty: 1, rate: 150_000 }], payments: [], ts: new Date(Date.now() - 3 * 86400_000).toISOString() }) // 1,500 three days ago, entered later
+    expect(doc(c, "sale", earlier.invoiceNo)).toMatchObject({ balanceBefore: 0, balanceAfter: 1_500 })
+    expect(doc(c, "sale", today.invoiceNo)).toMatchObject({ balanceBefore: 1_500, balanceAfter: 4_500 })
+  })
+
+  it("stays fast for a party with thousands of entries", async () => {
+    const c = await setup()
+    stock(c)
+    const ins = c.db.prepare("INSERT INTO ledger_entries(ts, party_kind, party_id, credit, kind, source_type, source_id, description) VALUES (?, 'customer', ?, 100, 'receipt', 'payment', ?, 'x')")
+    c.db.transaction(() => {
+      for (let i = 1; i <= 6000; i++) ins.run(new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(), c.party, 1_000_000 + i)
+    })()
+    const t = Date.now()
+    buildSnapshot(c.db)
+    listDocs(c.db, { kind: "sale", pageSize: 25 })
+    expect(Date.now() - t).toBeLessThan(1500)
+  })
 })

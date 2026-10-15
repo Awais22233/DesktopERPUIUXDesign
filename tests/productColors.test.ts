@@ -48,4 +48,14 @@ describe("one article in several colours", () => {
     expect(listProducts(db, { query: "Lawn 101" }).total).toBe(0)
     expect((db.prepare("SELECT COUNT(*) n FROM items WHERE name = 'Lawn 101'").get() as { n: number }).n).toBe(0)
   })
+
+  it("a different design is a different product; inner spaces are tidied; a huge opening stock is refused politely", async () => {
+    const { db, owner } = await setup()
+    saveProduct(db, owner, { ...base, color: "Blue", design: "Floral" })
+    expect(saveProductColors(db, owner, { ...base, design: "Stripes", colors: [{ color: "Blue" }] }).created).toHaveLength(1)
+    expect(saveProductColors(db, owner, { ...base, design: "Floral", colors: [{ color: "Blue" }] }).skipped).toEqual(["Blue"])
+    saveProductColors(db, owner, { ...base, colors: [{ color: "Sky   Blue" }] })
+    expect(saveProductColors(db, owner, { ...base, colors: [{ color: "Sky Blue" }] }).skipped).toEqual(["Sky Blue"])
+    expect(() => saveProductColors(db, owner, { ...base, colors: [{ color: "Tan", openingQty: 1e12 }] })).toThrow(/up to 1,000,000/)
+  })
 })

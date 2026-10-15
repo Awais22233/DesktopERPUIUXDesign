@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { DB } from "../db/connection"
 import { AppError } from "@core/errors"
@@ -63,7 +63,10 @@ function writeAtomic(file: string, data: Buffer): void {
 
 function dropFiles(dir: string, base: string | null | undefined): void {
   if (!base) return
-  for (const s of ["t", "f"]) rmSync(join(dir, `${base}-${s}.jpg`), { force: true })
+  for (const s of ["t", "f"]) {
+    rmSync(join(dir, `${base}-${s}.jpg`), { force: true })
+    rmSync(join(dir, `${base}-${s}.jpg.tmp`), { force: true })
+  }
 }
 
 export function saveProductImage(db: DB, actor: Actor, dir: string, variantId: number, thumbB64: string, fullB64: string): string {
@@ -83,7 +86,8 @@ export function saveProductImage(db: DB, actor: Actor, dir: string, variantId: n
     throw err
   }
   audit(db, actor.userId, "product.image", "variant", variantId, { set: true })
-  dropFiles(dir, row.image)
+  // The replaced photo is kept for a while (see sweepImages): if the data file is ever restored from an
+  // older backup, the older photo is still there for it.
   return base
 }
 
@@ -93,7 +97,6 @@ export function removeProductImage(db: DB, actor: Actor, dir: string, variantId:
   if (!row) throw new AppError("NOT_FOUND", "Product not found")
   db.prepare("UPDATE variants SET image = NULL WHERE id = ?").run(variantId)
   audit(db, actor.userId, "product.image", "variant", variantId, { set: false })
-  dropFiles(dir, row.image)
 }
 
 /** Serves a stored photo to the window. Only generated file names are accepted, so no path can escape the folder. */
@@ -103,15 +106,51 @@ export function readImage(dir: string, name: string): Buffer | null {
   return existsSync(file) ? readFileSync(file) : null
 }
 
-/** Copies photos that are not yet in the backup folder (only new files, so daily backups stay fast). */
+/**
+ * Copies photos that are not yet (completely) in the backup folder. Each file is copied under a temporary
+ * name and renamed, and a file of the wrong size is copied again, so a copy cut short by a power cut or
+ * a removed USB drive is repaired next time instead of staying broken.
+ */
 export function mirrorImages(dir: string, target: string): number {
   if (!existsSync(dir)) return 0
   mkdirSync(target, { recursive: true })
   let n = 0
   for (const name of readdirSync(dir)) {
-    if (!IMAGE_FILE.test(name) || existsSync(join(target, name))) continue
-    copyFileSync(join(dir, name), join(target, name))
+    if (!IMAGE_FILE.test(name)) continue
+    const from = join(dir, name)
+    const to = join(target, name)
+    if (existsSync(to) && statSync(to).size === statSync(from).size) continue
+    const tmp = `${to}.tmp`
+    copyFileSync(from, tmp)
+    renameSync(tmp, to)
     n++
   }
   return n
+}
+
+/**
+ * Housekeeping at start-up: removes leftover temporary files, and photo files that no product refers to
+ * any more and that are older than `keepDays` (replaced or removed photos are kept for a while on purpose).
+ */
+export function sweepImages(db: DB, dir: string, keepDays = 30, now = Date.now()): number {
+  if (!existsSync(dir)) return 0
+  const used = new Set((db.prepare("SELECT image FROM variants WHERE image IS NOT NULL").all() as { image: string }[]).map((r) => r.image))
+  let removed = 0
+  for (const name of readdirSync(dir)) {
+    const file = join(dir, name)
+    const age = now - statSync(file).mtimeMs
+    if (name.endsWith(".tmp")) {
+      if (age > 24 * 3600 * 1000) {
+        rmSync(file, { force: true })
+        removed++
+      }
+      continue
+    }
+    const m = /^(\d+-[0-9a-f]{8})-[tf]\.jpg$/.exec(name)
+    if (m && !used.has(m[1]!) && age > keepDays * 24 * 3600 * 1000) {
+      rmSync(file, { force: true })
+      removed++
+    }
+  }
+  return removed
 }

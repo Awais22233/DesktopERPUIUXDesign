@@ -14,7 +14,7 @@ import { CHANNELS, type Channel } from "@shared/ipc"
 import { migrate } from "./db/migrate"
 import { migrations } from "./db/migrations"
 import { createBackup } from "./db/backup"
-import { readImage } from "./services/images"
+import { readImage, sweepImages } from "./services/images"
 import { seedRoles } from "./services/auth"
 import { ensureConfig, getConfig, setFlag, setProfile } from "./services/config"
 import { ensureWalkInParty } from "./services/masterData"
@@ -135,6 +135,8 @@ async function startDatabase(): Promise<void> {
     db.close()
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)
     for (const suffix of ["", "-wal", "-shm"]) if (existsSync(dbFile + suffix)) renameSync(dbFile + suffix, join(dataDir, `erp-old-${stamp}.db${suffix}`))
+    // The old file's automatic backups belong with it: keep them out of the new business's backup list (and out of its clean-up).
+    if (existsSync(backupsDir)) renameSync(backupsDir, join(dataDir, `backups-old-${stamp}`))
     log("warn", `Set aside an incompatible data file as erp-old-${stamp}.db`)
     db = openDatabase(dbFile)
     try {
@@ -148,6 +150,11 @@ async function startDatabase(): Promise<void> {
   ensureWalkInParty(db)
   seedDefaults(db)
   backups = new BackupManager(db, backupsDir, imagesDir)
+  try {
+    sweepImages(db, imagesDir)
+  } catch (err) {
+    log("warn", "Photo clean-up failed", err)
+  }
   await backups.runIfDue()
   setInterval(() => void backups.runIfDue(), 3600 * 1000).unref()
 }
@@ -332,11 +339,16 @@ app.whenReady().then(async () => {
       })
     })
   }
-  await startDatabase()
-  registerIpc()
-  createWindow()
-  log("info", `Started v${app.getVersion()} (schema ${migrations.at(-1)!.id}), data in ${dataDir}`)
-  if (SMOKE) await smoke()
+  try {
+    await startDatabase()
+    registerIpc()
+    createWindow()
+    log("info", `Started v${app.getVersion()} (schema ${migrations.at(-1)!.id}), data in ${dataDir}`)
+    if (SMOKE) await smoke()
+  } catch (err) {
+    // Without this the process would stay alive with no window and keep the single-instance lock, so the next start would do nothing.
+    fatal("The application could not start", (err as Error).message)
+  }
 })
 
 // Final automatic backup when the user closes the application.

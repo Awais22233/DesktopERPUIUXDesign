@@ -189,10 +189,10 @@ export function saveProductColors(db: DB, actor: Actor, f: ColoursForm): { creat
   const seen = new Set<string>()
   const colors: { color: string; openingQty?: number }[] = []
   for (const c of f.colors) {
-    const name = (c.color ?? "").trim()
+    const name = (c.color ?? "").trim().replace(/\s+/g, " ")
     if (!name) throw new AppError("VALIDATION", "A colour name is empty")
     if (name.length > 60) throw new AppError("VALIDATION", `Colour name is too long: ${name.slice(0, 20)}…`)
-    if (c.openingQty !== undefined && (!Number.isInteger(c.openingQty) || c.openingQty < 0)) throw new AppError("VALIDATION", `Opening stock for ${name} must be a whole number`)
+    if (c.openingQty !== undefined && (!Number.isInteger(c.openingQty) || c.openingQty < 0 || c.openingQty > 1_000_000)) throw new AppError("VALIDATION", `Opening stock for ${name} must be a whole number up to 1,000,000`)
     const key = name.toLowerCase()
     if (seen.has(key)) throw new AppError("VALIDATION", `The colour "${name}" is listed twice`)
     seen.add(key)
@@ -207,9 +207,9 @@ export function saveProductColors(db: DB, actor: Actor, f: ColoursForm): { creat
       const exists = db
         .prepare(
           `SELECT 1 FROM variants v JOIN items i ON i.id = v.item_id JOIN companies co ON co.id = i.company_id
-           WHERE co.name = ? AND i.name = ? AND lower(COALESCE(v.color,'')) = lower(?) AND COALESCE(v.size_label,'') = COALESCE(?, '')`,
+           WHERE co.name = ? AND i.name = ? AND lower(COALESCE(v.color,'')) = lower(?) AND COALESCE(v.size_label,'') = COALESCE(?, '') AND COALESCE(v.design,'') = COALESCE(?, '')`,
         )
-        .get(company, article, c.color, clean(f.size))
+        .get(company, article, c.color, clean(f.size), clean(f.design))
       if (exists) {
         skipped.push(c.color)
         continue

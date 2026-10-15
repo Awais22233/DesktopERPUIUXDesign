@@ -1328,7 +1328,7 @@ export function InvoicePreview({
         </div>
       )}
       {/* The roll size only applies while printing; A4 keeps the default page. */}
-      {layout === "Thermal receipt" && <style>{`@page { size: ${thermalWidth === "58" ? "58mm" : "80mm"} ${rollMm || 200}mm; margin: 3mm; }`}</style>}
+      {layout === "Thermal receipt" && <style>{`@page { size: ${thermalWidth === "58" ? "58mm" : "80mm"} ${rollMm || 200}mm; margin: 3mm 5mm; }`}</style>}
       <div
         ref={paperRef}
         className={`invoice-paper ${
@@ -1357,6 +1357,7 @@ export function InvoicePreview({
             </>
           )}
         </p>
+        {transaction?.status === "void" && <div className="invoice-void">CANCELLED — this invoice is void</div>}
         <div className="invoice-title">
           <Heading level={3}>
             {receipt

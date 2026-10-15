@@ -102,14 +102,44 @@ export function profitSummary(db: DB, from: string, to: string): ProfitSummary {
   return { sales, returns, netSales, cogs, grossProfit: gross, expenses, writeOffs, priceDifferences, netProfit: gross - expenses - writeOffs + priceDifferences }
 }
 
+export interface BalanceSpan {
+  balanceBefore: number
+  balanceAfter: number
+}
+
 /**
- * The party's balance just before and just after one document, read from the ledger (so a reprint
- * months later shows what the bill showed on the day). Positive = the party owes us (customer) or we owe them (supplier).
+ * The party's balance just before and just after each of the given documents, read from the ledger
+ * (so a reprint months later shows what the bill showed on the day). Positive = the party owes us
+ * (customer) or we owe them (supplier).
+ *
+ * Entries are ordered exactly like the party statement (date, then entry number), so a bill and the
+ * statement always agree, even for backdated entries. Each party's ledger is read once with a running
+ * total, so the cost grows with the number of parties shown, not with parties x documents.
  */
-export function balanceAround(db: DB, kind: "customer" | "supplier", partyId: number, sourceType: string, sourceId: number): { balanceBefore: number; balanceAfter: number } | {} {
-  const span = db.prepare("SELECT MIN(id) AS lo, MAX(id) AS hi FROM ledger_entries WHERE source_type = ? AND source_id = ? AND kind NOT IN ('sale_void','purchase_void')").get(sourceType, sourceId) as { lo: number | null; hi: number | null }
-  if (span.lo === null || span.hi === null) return {}
+export function balancesAround(db: DB, kind: "customer" | "supplier", docs: { partyId: number; sourceType: string; sourceId: number }[]): Map<string, BalanceSpan> {
+  const out = new Map<string, BalanceSpan>()
+  const wanted = new Map<number, Set<string>>()
+  for (const d of docs) {
+    const set = wanted.get(d.partyId) ?? new Set<string>()
+    set.add(`${d.sourceType}:${d.sourceId}`)
+    wanted.set(d.partyId, set)
+  }
   const sign = kind === "customer" ? "debit - credit" : "credit - debit"
-  const sum = (cond: string, id: number) => (db.prepare(`SELECT COALESCE(SUM(${sign}),0) AS b FROM ledger_entries WHERE party_kind = ? AND party_id = ? AND id ${cond} ?`).get(kind, partyId, id) as { b: number }).b
-  return { balanceBefore: sum("<", span.lo) / 100, balanceAfter: sum("<=", span.hi) / 100 }
+  const stmt = db.prepare(
+    `SELECT source_type, source_id, kind, (${sign}) AS delta, SUM(${sign}) OVER (ORDER BY ts, id ROWS UNBOUNDED PRECEDING) AS run
+     FROM ledger_entries WHERE party_kind = ? AND party_id = ? ORDER BY ts, id`,
+  )
+  for (const [partyId, keys] of wanted) {
+    const first = new Map<string, number>()
+    const last = new Map<string, number>()
+    for (const e of stmt.iterate(kind, partyId) as Iterable<{ source_type: string | null; source_id: number | null; kind: string; delta: number; run: number }>) {
+      if (e.source_type === null || e.source_id === null || e.kind === "sale_void" || e.kind === "purchase_void") continue
+      const key = `${e.source_type}:${e.source_id}`
+      if (!keys.has(key)) continue
+      if (!first.has(key)) first.set(key, e.run - e.delta)
+      last.set(key, e.run)
+    }
+    for (const [key, before] of first) out.set(key, { balanceBefore: before / 100, balanceAfter: last.get(key)! / 100 })
+  }
+  return out
 }

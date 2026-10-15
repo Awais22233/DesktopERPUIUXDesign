@@ -47,4 +47,17 @@ describe("migrations", () => {
     expect(() => db.prepare("UPDATE audit_log SET action='z'").run()).toThrow(/append-only/)
     expect(() => db.prepare("DELETE FROM audit_log").run()).toThrow(/append-only/)
   })
+
+  it("upgrades a database made by the first release without touching its data (adds the photo column)", async () => {
+    const db = openDatabase(":memory:")
+    await migrate(db, migrations.filter((m) => m.id <= 3))
+    db.prepare("INSERT INTO companies(name) VALUES ('Old Co')").run()
+    db.prepare("INSERT INTO items(company_id, name) VALUES (1, 'Old Article')").run()
+    db.prepare("INSERT INTO variants(item_id, color, size_label, purchase_price, sale_price) VALUES (1, 'Red', '40 meter', 100, 150)").run()
+    await migrate(db, migrations)
+    const row = db.prepare("SELECT color, sale_price, image FROM variants WHERE id = 1").get() as { color: string; sale_price: number; image: string | null }
+    expect(row).toEqual({ color: "Red", sale_price: 150, image: null })
+    expect(db.pragma("foreign_key_check")).toEqual([])
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok")
+  })
 })

@@ -389,15 +389,22 @@ export default function App() {
       return
     }
     if (type === "product") {
+      let photoProblem = ""
       const res = await run(async () => {
         const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
-        if (data.photoThumb && data.photoFull) await api("product:image", { id: saved.id, thumb: data.photoThumb, full: data.photoFull })
-        else if (data.photoRemove && initial?.id) await api("product:image", { id: saved.id })
+        // The product is already saved at this point. A photo problem must never make the form look unsaved:
+        // pressing Save again would create the product (and its opening stock) a second time.
+        try {
+          if (data.photoThumb && data.photoFull) await api("product:image", { id: saved.id, thumb: data.photoThumb, full: data.photoFull })
+          else if (data.photoRemove && initial?.id) await api("product:image", { id: saved.id })
+        } catch (e) {
+          photoProblem = (e as Error).message
+        }
         return saved
       })
       if (res) {
         closeModal()
-        notify(initial?.id ? "Product updated." : "Product added.")
+        notify(photoProblem ? `${initial?.id ? "Product updated" : "Product added"}, but the photo was not saved: ${photoProblem}. Open the product and add the photo again.` : initial?.id ? "Product updated." : "Product added.")
       }
       return
     }

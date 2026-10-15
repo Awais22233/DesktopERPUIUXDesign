@@ -61,13 +61,25 @@ function render(img: HTMLImageElement, maxSide: number, quality: number): string
   return canvas.toDataURL("image/jpeg", quality).replace(/^data:image\/jpeg;base64,/, "")
 }
 
+/** Lowers the JPEG quality until the picture fits the size the app accepts (busy fabric prints compress badly). */
+function fit(img: HTMLImageElement, maxSide: number, quality: number, maxBase64: number): string {
+  let q = quality
+  let out = render(img, maxSide, q)
+  while (out.length > maxBase64 && q > 0.4) {
+    q -= 0.1
+    out = render(img, maxSide, q)
+  }
+  return out
+}
+
 /** Shrinks any picture the user picks to a small thumbnail and one larger copy, so the database folder stays small. */
 export async function shrinkPhoto(file: File): Promise<PickedPhoto> {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Choose a JPG, PNG or WebP photo.")
   if (file.size > 25_000_000) throw new Error("That photo is too large (over 25 MB). Choose a smaller one.")
   const img = await loadImage(file)
-  const thumb = render(img, 240, 0.82)
-  return { thumb, full: render(img, 1000, 0.85), preview: `data:image/jpeg;base64,${thumb}` }
+  // The main process accepts at most 150 KB / 700 KB; stay clearly below that (base64 is 4/3 the size).
+  const thumb = fit(img, 240, 0.82, 150_000)
+  return { thumb, full: fit(img, 1000, 0.85, 600_000), preview: `data:image/jpeg;base64,${thumb}` }
 }
 
 export type PhotoChoice = { kind: "keep" } | { kind: "remove" } | ({ kind: "new" } & PickedPhoto)

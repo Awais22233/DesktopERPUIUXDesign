@@ -540,8 +540,8 @@ td strong { color: #46526a; font-weight: 550; }
    Everything is pure black on white: a thermal head cannot print grey. */
 .invoice-paper.thermal { margin: 23px auto; padding: 0; font-size: 12px; background: #fff; }
 .invoice-paper.thermal, .invoice-paper.thermal * { color: #000 !important; }
-.invoice-paper.thermal.w80 { width: 74mm; }
-.invoice-paper.thermal.w58 { width: 52mm; font-size: 11px; }
+.invoice-paper.thermal.w80 { width: 70mm; }
+.invoice-paper.thermal.w58 { width: 48mm; font-size: 11px; }
 .thermal .invoice-brand { flex-direction: column; justify-content: center; text-align: center; gap: 4px; }
 .thermal .invoice-brand .brand-mark { width: 40px; height: 40px; }
 .thermal .invoice-brand h2 { font-size: 20px; line-height: 1.2; }
@@ -776,3 +776,9 @@ td strong { color: #46526a; font-weight: 550; }
 .colour-rows { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 12px; border: 1px dashed var(--border); border-radius: 8px; background: var(--background); }
 .colour-row { display: grid; grid-template-columns: 1fr 110px 34px; gap: 8px; align-items: center; }
 .colour-rows > .btn { align-self: flex-start; }
+
+/* Many thermal printers only print about 72 mm of an 80 mm roll and 48 mm of a 58 mm roll, so the receipt keeps 5 mm free on each side. */
+.thermal .account-summary strong { white-space: normal; }
+.thermal.w58 .account-summary > div { font-size: 11px; }
+.invoice-void { text-align: center; font-weight: 700; letter-spacing: 1px; padding: 6px 8px; margin: 10px 0 0; border: 2px solid var(--red); color: var(--red); border-radius: 3px; }
+@media print { .invoice-void { border-color: #000; } }

@@ -1,7 +1,7 @@
 import type { DB } from "../db/connection"
 import { getSetting } from "../db/util"
 import { buildDashboard } from "./dashboard"
-import { balanceAround } from "./queries"
+import { balancesAround } from "./queries"
 import { SETTING_KEYS, fmtId, type Audit, type CartItem, type Masters, type Snapshot, type Transaction } from "@shared/models"
 
 const r = (minor: number) => minor / 100
@@ -135,12 +135,13 @@ export function buildSnapshot(db: DB): Snapshot {
   const parties = (db.prepare(`SELECT p.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM parties p LEFT JOIN cities c ON c.id = p.city_id LEFT JOIN v_customer_balance b ON b.party_id = p.id WHERE p.is_walk_in = 0 ORDER BY p.name`).all() as never[]).map((x) => partyRow(x, "PTY"))
   const suppliers = (db.prepare(`SELECT s.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM suppliers s LEFT JOIN cities c ON c.id = s.city_id LEFT JOIN v_supplier_balance b ON b.supplier_id = s.id ORDER BY s.name`).all() as never[]).map((x) => partyRow(x, "SUP"))
 
-  const collections = (db.prepare(`SELECT p.id AS pay_id, p.party_id AS party_id, p.doc_no, p.ts, p.amount, p.method, p.reference, p.notes, p.received_by, pa.name AS party, a.name AS account, u.display_name AS usr
+  const collectionRows = (db.prepare(`SELECT p.id AS pay_id, p.party_id AS party_id, p.doc_no, p.ts, p.amount, p.method, p.reference, p.notes, p.received_by, pa.name AS party, a.name AS account, u.display_name AS usr
       FROM payments p JOIN parties pa ON pa.id = p.party_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id
       WHERE p.kind = 'customer_receipt' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
-    id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "",
-    ...balanceAround(db, "customer", x.party_id, "payment", x.pay_id),
+    id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "", pay_id: x.pay_id as number, party_id: x.party_id as number,
   }))
+  const collectionBalances = balancesAround(db, "customer", collectionRows.map((x) => ({ partyId: x.party_id, sourceType: "payment", sourceId: x.pay_id })))
+  const collections = collectionRows.map(({ pay_id, party_id, ...c }) => ({ ...c, ...(collectionBalances.get(`payment:${pay_id}`) ?? {}) }))
 
   const expenses = (db.prepare(`SELECT e.id, e.ts, e.amount, e.description, c.name AS category, a.name AS account, u.display_name AS usr FROM expenses e JOIN expense_categories c ON c.id = e.category_id JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.user_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
     id: fmtId("EXP", x.id), category: x.category, amount: r(x.amount), account: x.account, date: bizDate(x.ts, off), notes: x.description ?? "", user: x.usr ?? "",

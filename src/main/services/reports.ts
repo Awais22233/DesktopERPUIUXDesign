@@ -53,9 +53,9 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
     case "Sales by City":
       return grouped(all(`SELECT COALESCE(c.name,'No city') k, COUNT(*) n, SUM(s.total) v, SUM(s.paid) p FROM sales s JOIN parties p ON p.id=s.party_id LEFT JOIN cities c ON c.id=p.city_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND COALESCE(c.name,'No city') LIKE ? GROUP BY c.id ORDER BY v DESC`, from, to, like), "City", "Sales by city")
     case "Sales by Company":
-      return linesGrouped(all(`SELECT co.name k, SUM(l.qty) n, SUM(l.line_total) v FROM sale_lines l JOIN sales s ON s.id=l.sale_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND co.name LIKE ? GROUP BY co.id ORDER BY v DESC`, from, to, like), "Company")
+      return linesGrouped(all(`SELECT co.name k, SUM(l.qty) n, SUM(l.line_total) v FROM sale_lines l JOIN sales s ON s.id=l.sale_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND co.name LIKE ? GROUP BY co.id ORDER BY v DESC`, from, to, like), "Company", "sale")
     case "Sales by Article":
-      return linesGrouped(all(`SELECT i.name || COALESCE(' ' || v.color,'') k, SUM(l.qty) n, SUM(l.line_total) v FROM sale_lines l JOIN sales s ON s.id=l.sale_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND i.name LIKE ? GROUP BY v.id ORDER BY v DESC`, from, to, like), "Article")
+      return linesGrouped(all(`SELECT i.name || COALESCE(' ' || v.color,'') k, SUM(l.qty) n, SUM(l.line_total) v FROM sale_lines l JOIN sales s ON s.id=l.sale_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND i.name LIKE ? GROUP BY v.id ORDER BY v DESC`, from, to, like), "Article", "sale")
     case "Sales by User":
       return grouped(all(`SELECT COALESCE(u.display_name,'System') k, COUNT(*) n, SUM(s.total) v, SUM(s.paid) p FROM sales s LEFT JOIN users u ON u.id=s.user_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND COALESCE(u.display_name,'System') LIKE ? GROUP BY s.user_id ORDER BY v DESC`, from, to, like), "User", "Sales by user")
 
@@ -73,9 +73,9 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
     case "Supplier Purchase":
       return grouped(all(`SELECT p.name k, COUNT(*) n, SUM(s.total) v, SUM(s.paid) p FROM purchases s JOIN suppliers p ON p.id=s.supplier_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND p.name LIKE ? GROUP BY p.id ORDER BY v DESC`, from, to, like), "Supplier", "Purchases by supplier")
     case "Company Purchase":
-      return linesGrouped(all(`SELECT co.name k, SUM(l.qty) n, SUM(l.line_total) v FROM purchase_lines l JOIN purchases s ON s.id=l.purchase_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND co.name LIKE ? GROUP BY co.id ORDER BY v DESC`, from, to, like), "Company")
+      return linesGrouped(all(`SELECT co.name k, SUM(l.qty) n, SUM(l.line_total) v FROM purchase_lines l JOIN purchases s ON s.id=l.purchase_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND co.name LIKE ? GROUP BY co.id ORDER BY v DESC`, from, to, like), "Company", "purchase")
     case "Article Purchase":
-      return linesGrouped(all(`SELECT i.name || COALESCE(' ' || v.color,'') k, SUM(l.qty) n, SUM(l.line_total) v FROM purchase_lines l JOIN purchases s ON s.id=l.purchase_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND i.name LIKE ? GROUP BY v.id ORDER BY v DESC`, from, to, like), "Article")
+      return linesGrouped(all(`SELECT i.name || COALESCE(' ' || v.color,'') k, SUM(l.qty) n, SUM(l.line_total) v FROM purchase_lines l JOIN purchases s ON s.id=l.purchase_id JOIN variants v ON v.id=l.variant_id JOIN items i ON i.id=v.item_id WHERE s.status='completed' AND s.ts>=? AND s.ts<? AND i.name LIKE ? GROUP BY v.id ORDER BY v DESC`, from, to, like), "Article", "purchase")
 
     case "Current Stock":
     case "Stock Valuation":
@@ -277,11 +277,22 @@ export function runReport(db: DB, q: ReportRequest): ReportResult {
       [{ label: "Total sales", value: r(total) }, { label: "Total received", value: r(paid) }, { label: "Remaining", value: r(total - paid), tone: "red" }],
     )
   }
-  function linesGrouped(rows: Record<string, any>[], label: string): ReportResult {
-    return result(
-      [text("name", label), num("n", "Units"), money("total", "Amount")],
-      rows.map((x) => ({ name: x.k, n: x.n, total: r(x.v) })),
-      [{ label: "Total amount", value: r(rows.reduce((s, x) => s + x.v, 0)) }, { label: "Units", value: rows.reduce((s, x) => s + x.n, 0), kind: "number" }, { label: "Groups", value: rows.length, kind: "number" }],
-    )
+  function linesGrouped(rows: Record<string, any>[], label: string, kind: "sale" | "purchase"): ReportResult {
+    const items = rows.reduce((s, x) => s + x.v, 0)
+    const summary: Parameters<typeof result>[2] = [{ label: "Total amount", value: r(items) }, { label: "Units", value: rows.reduce((s, x) => s + x.n, 0), kind: "number" }, { label: "Groups", value: rows.length, kind: "number" }]
+    // A discount given on the whole invoice belongs to no single item, so item amounts are shown before it.
+    // Without a filter the report can show it, so its net figure equals the invoice totals of the same days.
+    let note = "Item amounts are before any discount given on the whole invoice."
+    if (!f) {
+      const t = kind === "sale" ? "sales" : "purchases"
+      const l = kind === "sale" ? "sale_lines" : "purchase_lines"
+      const fk = kind === "sale" ? "sale_id" : "purchase_id"
+      const whole = (db.prepare(`SELECT COALESCE(SUM(s.discount),0) - COALESCE((SELECT SUM(l.discount) FROM ${l} l JOIN ${t} s2 ON s2.id = l.${fk} WHERE s2.status='completed' AND s2.ts>=? AND s2.ts<?),0) AS v FROM ${t} s WHERE s.status='completed' AND s.ts>=? AND s.ts<?`).get(from, to, from, to) as { v: number }).v
+      if (whole > 0) {
+        summary.splice(1, 0, { label: "Whole-invoice discounts", value: -r(whole) }, { label: "Net amount (matches invoice totals)", value: r(items - whole) })
+        note = "Item amounts are before discounts given on the whole invoice; those are shown separately so the net amount equals the invoice totals."
+      }
+    }
+    return result([text("name", label), num("n", "Units"), money("total", "Amount")], rows.map((x) => ({ name: x.k, n: x.n, total: r(x.v) })), summary, note)
   }
 }

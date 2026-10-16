@@ -191,3 +191,15 @@ describe("what the sales screen charges", () => {
     expect(await fail(() => c["sale:create"]({ partyId: party, lines: [{ productId: v, qty: 1, rate: 1 }], payments: [] }))).toMatch(/price_override/)
   })
 })
+
+describe("amounts have at most two decimals", () => {
+  it("refuses 1.005 instead of silently rounding it, and accepts ordinary floating-point sums", async () => {
+    const { c } = await app()
+    const id = (await c["product:save"]({ company: "X", article: "A", cost: 1, rate: 2, openingQty: 5 })).id
+    const party = (await c["party:save"]({ kind: "customer", name: "P" })).id
+    await expect(async () => await c["sale:create"]({ partyId: party, lines: [{ productId: id, qty: 1, rate: 1.005 }], payments: [] })).rejects.toThrow(/at most 2 decimal/)
+    // 0.1 + 0.2 = 0.30000000000000004 is still thirty paisa
+    const ok = await c["sale:create"]({ partyId: party, lines: [{ productId: id, qty: 1, rate: 0.1 + 0.2 }], payments: [] })
+    expect(ok.id).toMatch(/INV-/)
+  })
+})

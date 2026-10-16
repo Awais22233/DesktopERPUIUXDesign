@@ -36,7 +36,10 @@ type Handlers = { [C in Channel]?: (p: IpcContract[C]["req"]) => Promise<IpcCont
 
 const paisa = (v: number | undefined | null, label = "Amount"): number => {
   if (v === undefined || v === null || !Number.isFinite(v)) throw new AppError("VALIDATION", `${label} is not a valid number`)
-  return Math.round(v * 100)
+  const minor = v * 100
+  // Money has two decimals (paisa). Silently rounding 1.005 would make the printed bill and the stored bill differ by a paisa.
+  if (Math.abs(minor - Math.round(minor)) > 0.001 + Math.abs(minor) * 1e-12) throw new AppError("VALIDATION", `${label} can have at most 2 decimal places`)
+  return Math.round(minor)
 }
 const optPaisa = (v: number | undefined | null) => (v === undefined || v === null ? undefined : paisa(v))
 

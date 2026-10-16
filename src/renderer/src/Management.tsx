@@ -7,6 +7,7 @@ import type { Masters, ReportResult, ReturnRow } from "@shared/models"
 import { useEffect, useRef, useState } from "react"
 import { useDebounced, useRemote } from "./remote"
 import { ProductPicker } from "./Workflows"
+import { ColoursEditor } from "./colours"
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -316,7 +317,7 @@ export function Summary({
   )
 }
 
-const IMMEDIATE = ["Features", "Payment methods", "Cash / bank accounts", "Product categories", "Expense categories", "Than sizes", "Invoice numbering"]
+const IMMEDIATE = ["Features", "Payment methods", "Cash / bank accounts", "Product categories", "Colours", "Expense categories", "Than sizes", "Invoice numbering"]
 
 function ListEditor({ items, onAdd, onRemove, placeholder, empty }: { items: string[]; onAdd: (name: string) => unknown; onRemove?: (name: string) => unknown; placeholder: string; empty: string }) {
   const [value, setValue] = useState("")
@@ -366,6 +367,7 @@ export function Settings({
     "Payment methods",
     "Cash / bank accounts",
     "Product categories",
+    "Colours",
     "Expense categories",
     "Than sizes",
     "Invoice numbering",
@@ -691,6 +693,8 @@ export function Settings({
                     </div>
                   )}
                 </>
+              ) : section === "Colours" ? (
+                <ColoursEditor run={run} notify={notify} canManage={canManage} />
               ) : section === "Expense categories" ? (
                 <ListEditor items={masters.expenseCategories} placeholder="e.g. Fuel" empty="No expense categories." onAdd={(n) => run(() => api("master:add", { kind: "expenseCategory", name: n })).then((r) => r !== undefined && notify("Category added."))} />
               ) : section === "Than sizes" ? (

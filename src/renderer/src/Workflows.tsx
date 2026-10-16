@@ -3,6 +3,7 @@ import { useDebounced, useRemote } from "./remote"
 import { BrandMark, useBusiness } from "./business"
 import { useConfig } from "./config"
 import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
+import { ColourChipsMulti, ColourPicker, FabricSwatch } from "./colours"
 import { api } from "./backend"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
@@ -289,9 +290,7 @@ export function SalesWorkspace({
                   disabled={!purchase && p.stock === 0}
                   onClick={() => addProduct(p)}
                 >
-                  {p.image ? <ProductPhoto product={p} className="list-photo" /> : <span
-                    className={`fabric-swatch swatch-${p.color.split(" ")[0].toLowerCase()}`}
-                  />}
+                  {p.image ? <ProductPhoto product={p} className="list-photo" /> : <FabricSwatch name={p.color} />}
                   <span className="product-option-info">
                     <strong>{p.name}</strong>
                     <span>
@@ -660,6 +659,7 @@ export function EntryForm({
   const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
   const editing = !!initial?.id && (type === "party" || type === "product")
   const prod = (editing && type === "product" ? initial : undefined) as Product | undefined
+  const [colour, setColour] = useState(prod?.color ?? "")
   const pty = (editing && type === "party" ? initial : undefined) as Party | undefined
   const financial = type === "recovery" || type === "supplier-payment"
   const defaultAccount = (kind: string) => (kind === "Cash" ? accounts.find((a) => a.type === "cash") : accounts.find((a) => a.type === "bank") ?? accounts[0])?.name
@@ -931,7 +931,7 @@ export function EntryForm({
             <div className="form-grid">
               {!(multi && !editing) && (
                 <Field label={isEnabled("than") ? "Colour" : "Variant (colour / type)"}>
-                  <Input name="color" defaultValue={prod?.color} />
+                  <ColourPicker name="color" value={colour} onChange={setColour} label={isEnabled("than") ? "Colour" : "Variant (colour / type)"} />
                 </Field>
               )}
               <Field label={L.size} hint={isEnabled("than") ? "Type it, e.g. 40 meter" : "e.g. 180 ml"}>
@@ -1562,6 +1562,15 @@ function ColourRows({ rows, onChange, label }: { rows: { name: string; qty: stri
     <div className="colour-rows">
       <strong>{label}</strong>
       <span className="muted">One row per colour. Opening stock is optional. You can also paste a list like Blue, Black, Maroon.</span>
+      <ColourChipsMulti
+        names={rows.map((r) => r.name)}
+        onToggle={(colour, on) => {
+          const key = colour.trim().toLowerCase()
+          if (!on) return onChange(rows.filter((r) => r.name.trim().toLowerCase() !== key).length ? rows.filter((r) => r.name.trim().toLowerCase() !== key) : [{ name: "", qty: "" }])
+          const empty = rows.findIndex((r) => !r.name.trim() && !r.qty.trim())
+          onChange(empty >= 0 ? rows.map((r, k) => (k === empty ? { ...r, name: colour } : r)) : [...rows, { name: colour, qty: "" }])
+        }}
+      />
       {rows.map((r, i) => (
         <div className="colour-row" key={i}>
           <Input aria-label={`Colour ${i + 1}`} value={r.name} placeholder="e.g. Blue" onChange={(e) => setName(i, e.target.value)} />
@@ -1597,9 +1606,7 @@ export function StockDetails({
   return (
     <>
       <div className="stock-detail">
-        {product.image ? <ProductPhoto product={product} size="f" className="detail-photo" /> : <span
-          className={`fabric-swatch large-swatch swatch-${product.color.split(" ")[0].toLowerCase()}`}
-        />}
+        {product.image ? <ProductPhoto product={product} size="f" className="detail-photo" /> : <FabricSwatch name={product.color} large />}
         <div>
           <Heading level={2}>{product.name}</Heading>
           <p>

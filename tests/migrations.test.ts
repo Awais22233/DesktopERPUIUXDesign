@@ -60,4 +60,23 @@ describe("migrations", () => {
     expect(db.pragma("foreign_key_check")).toEqual([])
     expect(db.pragma("integrity_check", { simple: true })).toBe("ok")
   })
+
+  it("upgrading from schema 4 puts every colour already in use into the library once (letter case ignored)", async () => {
+    const db = openDatabase(":memory:")
+    await migrate(db, migrations.filter((m) => m.id <= 4))
+    db.prepare("INSERT INTO companies(name) VALUES ('Old Co')").run()
+    db.prepare("INSERT INTO items(company_id, name) VALUES (1, 'A'), (1, 'B')").run()
+    const ins = db.prepare("INSERT INTO variants(item_id, color, size_label, purchase_price, sale_price) VALUES (?,?,?,100,150)")
+    ins.run(1, "Navy Blue", "40 meter")
+    ins.run(2, "navy blue", "40 meter")
+    ins.run(1, " Black ", "20 meter")
+    ins.run(2, null, "20 meter")
+    ins.run(2, "  ", "10 meter")
+    await migrate(db, migrations)
+    const names = (db.prepare("SELECT name FROM colours ORDER BY name").all() as { name: string }[]).map((r) => r.name)
+    expect(names).toEqual(["Black", "Navy Blue"])
+    // products are untouched
+    expect((db.prepare("SELECT COUNT(*) n FROM variants").get() as { n: number }).n).toBe(5)
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok")
+  })
 })

@@ -2,6 +2,7 @@ import type { DB } from "../db/connection"
 import { AppError } from "@core/errors"
 import { requirePermission, type Actor } from "@core/permissions"
 import { audit, tx } from "../db/util"
+import { ensureColour } from "./colours"
 import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 
@@ -144,7 +145,7 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
     if (!itemId) itemId = Number(db.prepare("INSERT INTO items(company_id, category_id, name) VALUES (?,?,?)").run(companyId, categoryId, article).lastInsertRowid)
     else if (categoryId) db.prepare("UPDATE items SET category_id = ? WHERE id = ?").run(categoryId, itemId)
 
-    const vals = [clean(f.sku), clean(f.barcode), clean(f.color), clean(f.design), clean(f.size), f.unit?.trim() || "piece", f.purchasePrice, f.salePrice, f.wholesalePrice ?? null, f.minStock ?? 0] as const
+    const vals = [clean(f.sku), clean(f.barcode), ensureColour(db, f.color), clean(f.design), clean(f.size), f.unit?.trim() || "piece", f.purchasePrice, f.salePrice, f.wholesalePrice ?? null, f.minStock ?? 0] as const
     let id: number
     if (f.id) {
       if (!db.prepare("SELECT 1 FROM variants WHERE id = ?").get(f.id)) throw new AppError("NOT_FOUND", "Product not found")

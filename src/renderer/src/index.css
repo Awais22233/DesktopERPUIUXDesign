@@ -782,3 +782,24 @@ td strong { color: #46526a; font-weight: 550; }
 .thermal.w58 .account-summary > div { font-size: 11px; }
 .invoice-void { text-align: center; font-weight: 700; letter-spacing: 1px; padding: 6px 8px; margin: 10px 0 0; border: 2px solid var(--red); color: var(--red); border-radius: 3px; }
 @media print { .invoice-void { border-color: #000; } }
+
+/* ---------- Colour library ---------- */
+.colour-dot { display: inline-block; flex-shrink: 0; border-radius: 50%; border: 1px solid #00000026; box-sizing: border-box; vertical-align: middle; }
+.colour-dot.unknown { background: repeating-linear-gradient(45deg, #e6e9ef, #e6e9ef 3px, #fff 3px, #fff 6px); }
+.colour-cell { display: inline-flex; align-items: center; gap: 7px; }
+.colour-picker { display: flex; flex-direction: column; gap: 6px; }
+.colour-picker-input { display: flex; align-items: center; gap: 8px; }
+.colour-picker-input .input, .colour-picker-input input { flex: 1; }
+.colour-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 112px; overflow-y: auto; }
+.colour-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.colour-chip:hover { border-color: var(--primary); }
+.colour-chip.on { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.colour-multi { display: flex; flex-direction: column; gap: 8px; }
+.colour-line { display: flex; align-items: center; gap: 12px; }
+.colour-actions { display: flex; gap: 4px; }
+.colour-add { align-items: center; }
+.shade-field { display: inline-flex; align-items: center; gap: 6px; }
+.shade-field input[type="color"] { width: 38px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.colour-edit { gap: 8px; flex-wrap: wrap; }
+.colour-add { display: flex; flex-wrap: nowrap; gap: 10px; margin-bottom: 10px; }
+.colour-add > input { flex: 1; min-width: 0; }

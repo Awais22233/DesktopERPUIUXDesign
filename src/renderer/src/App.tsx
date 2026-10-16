@@ -78,6 +78,7 @@ import { money, today, setToday, L, type Collection, type Party, type Product, t
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
 import { useSession } from "./Auth"
+import { ColourDot, useColourLibraryLoader } from "./colours"
 import { bumpData, fetchAllPages, useDebounced, useRemote } from "./remote"
 import type { Product as CountProduct } from "@shared/models"
 
@@ -200,6 +201,7 @@ export default function App() {
   const { isEnabled } = useConfig()
   const { business } = useBusiness()
   const session = useSession()
+  useColourLibraryLoader()
   const [store, setStore] = useState<Store>(emptyStore)
   const [ready, setReady] = useState(false)
   const [page, setPage] = useState("Dashboard")
@@ -851,7 +853,7 @@ export default function App() {
                 ),
               },
               { key: "company", label: "Company" },
-              { key: "color", label: "Variant" },
+              { key: "color", label: "Variant", render: (p) => (p.color ? <span className="colour-cell"><ColourDot name={p.color} />{p.color}</span> : "—") },
               { key: "size", label: L.size, render: (p) => p.size || "—" },
               {
                 key: "stock",

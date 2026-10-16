@@ -143,6 +143,9 @@ export function SalesWorkspace({
       return setError(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
     if (!purchase && cart.some((c) => known.current.has(c.productId) && c.qty > known.current.get(c.productId)!.stock))
       return setError("The quantity exceeds available stock. Please adjust the quantity.")
+    const twoDecimals = (x: number) => Math.abs(x * 100 - Math.round(x * 100)) < 0.001
+    if (cart.some((c) => !twoDecimals(c.rate) || !twoDecimals(c.discount)) || !twoDecimals(Number(discount)) || !twoDecimals(received))
+      return setError("Rates, discounts and payments can have at most 2 decimal places (paisa).")
     if (Number(discount) < 0 || Number(discount) > subtotal) return setError("Invoice discount must be between zero and the subtotal.")
     if (received > total || received < 0 || (method === "Partial" && (!received || received >= total)))
       return setError("Enter a partial payment greater than zero and less than the total.")

@@ -5,6 +5,7 @@ import type { Channel, IpcContract, LineIn, PayIn } from "@shared/ipc"
 import { SETTING_KEYS, fmtId, idNumber } from "@shared/models"
 import { audit, getSetting, setSetting, tx } from "./db/util"
 import { hashPassword } from "./services/auth"
+import { deleteColour, listColours, saveColour } from "./services/colours"
 import { addAccount, addMaster, saveParty, saveProduct, saveProductColors, setAccountActive } from "./services/catalog"
 import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
@@ -224,6 +225,9 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       })
       return { created: r.created.map((id) => fmtId("VAR", id)), skipped: r.skipped }
     },
+    "colours:list": () => (actor(), listColours(db())),
+    "colour:save": (p) => ({ id: saveColour(db(), actor(), p) }),
+    "colour:delete": (p) => (deleteColour(db(), actor(), p.id), null),
     "product:image": (p) => {
       if (!ctx.imagesDir) throw new AppError("INVALID_STATE", "Photos are not available")
       if (p.thumb && p.full) saveProductImage(db(), actor(), ctx.imagesDir, idNumber(p.id), p.thumb, p.full)

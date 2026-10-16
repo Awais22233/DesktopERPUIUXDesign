@@ -241,6 +241,33 @@ await step("one article in several colours is added in one go; an existing colou
   await page.waitForSelector("text=/1 colour added.*skipped: blue/")
   await page.waitForSelector("text=Lawn 55 Green")
 })
+await step("colour library: pick colours with one click, rename a colour everywhere", async () => {
+  await nav("Inventory")
+  await page.getByRole("button", { name: "Add product" }).first().click()
+  // single colour: typing narrows the chips, a click fills the box
+  await page.getByRole("textbox", { name: "Colour", exact: true }).fill("maro")
+  await page.getByRole("button", { name: "Maroon", exact: true }).click()
+  if ((await page.getByRole("textbox", { name: "Colour", exact: true }).inputValue()) !== "Maroon") throw new Error("chip did not fill the colour")
+  // several colours: a chip adds a row, a second click takes it off
+  await page.getByRole("button", { name: /Add several colours/ }).click()
+  await page.getByRole("group", { name: "Pick colours from your library" }).getByRole("button", { name: "Green", exact: true }).click()
+  if ((await page.getByLabel("Colour 1", { exact: true }).inputValue()) !== "Green") throw new Error("chip did not add a row")
+  await page.getByRole("group", { name: "Pick colours from your library" }).getByRole("button", { name: "Green", exact: true }).click()
+  if ((await page.getByLabel("Colour 1", { exact: true }).inputValue()) !== "") throw new Error("second click should remove the colour")
+  await shot("colour-library-picker")
+  await page.getByRole("button", { name: "Cancel" }).first().click()
+  // rename in Settings -> Colours; every product follows
+  await nav("Settings")
+  await page.getByRole("button", { name: "Colours", exact: true }).click()
+  await page.getByRole("button", { name: "Edit Green" }).click()
+  await page.getByLabel("Colour name", { exact: true }).fill("Bottle Green")
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await page.waitForSelector("text=/Renamed on 1 product/")
+  await shot("colour-library-settings")
+  await nav("Inventory")
+  await page.waitForSelector("text=Lawn 55 Bottle Green")
+  if (await page.locator("text=Lawn 55 Green").count()) throw new Error("old name still shown")
+})
 await step("sign out, wrong password refused, sign in again", async () => {
   await page.getByTitle("Lock workspace").click()
   await page.getByRole("button", { name: /Sign out|Lock|Confirm/ }).last().click()

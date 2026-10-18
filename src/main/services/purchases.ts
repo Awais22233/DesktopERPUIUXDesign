@@ -89,6 +89,8 @@ export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): Purcha
       db.prepare(
         `INSERT INTO purchase_lines(purchase_id, variant_id, qty, rate, discount, line_total, batch_id) VALUES (?,?,?,?,?,?,?)`,
       ).run(purchaseId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, l.batchId ?? null)
+      // the next purchase of this product starts from the latest supplier price (the average cost is kept separately)
+      db.prepare("UPDATE variants SET purchase_price = ? WHERE id = ?").run(l.rate, l.variantId)
       postMovement(db, {
         variantId: l.variantId,
         qtyDelta: l.qty,

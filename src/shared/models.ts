@@ -29,7 +29,10 @@ export type Product = {
   barcode?: string
   sku?: string
   stock: number
+  /** average cost of the stock in hand (falls back to the purchase price) */
   cost: number
+  /** the latest supplier price: what a new purchase and the product form start from */
+  purchasePrice: number
   /** the sale price */
   rate: number
   /** what the sales screen charges by default: the wholesale price when that feature is on and set, otherwise the sale price */

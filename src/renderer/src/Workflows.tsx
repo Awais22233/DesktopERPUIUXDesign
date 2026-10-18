@@ -128,7 +128,7 @@ export function SalesWorkspace({
           color: p.color,
           size: p.size,
           qty: 1,
-          rate: purchase ? p.cost : p.price,
+          rate: purchase ? p.purchasePrice : p.price,
           discount: 0,
         },
       ])
@@ -738,7 +738,7 @@ export function EntryForm({
             <Field label="Amount" required>
               <div className="large-amount-input">
                 <span>Rs.</span>
-                <Input name="amount" type="number" min="1" max={party ? Math.max(party.balance, 0) : undefined} required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+                <Input name="amount" type="number" min="0.01" step="0.01" max={party ? Math.max(party.balance, 0) : undefined} required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
               </div>
             </Field>
             <div className="form-grid">
@@ -773,7 +773,7 @@ export function EntryForm({
               </Select>
             </Field>
             <Field label="Amount" required>
-              <Input name="amount" type="number" min="1" required placeholder="Enter amount in Rs." />
+              <Input name="amount" type="number" min="0.01" step="0.01" required placeholder="Enter amount in Rs." />
             </Field>
             <Field label="Pay from account">
               <Select name="account">{accountOptions}</Select>
@@ -795,7 +795,7 @@ export function EntryForm({
               </Select>
             </Field>
             <Field label="Amount" required>
-              <Input name="amount" type="number" min="1" required />
+              <Input name="amount" type="number" min="0.01" step="0.01" required />
             </Field>
           </>
         )}
@@ -882,7 +882,7 @@ export function EntryForm({
             </Field>
             <div className="form-grid">
               <Field label="Credit limit (Rs.)" hint="0 means no limit is set.">
-                <Input name="limit" type="number" min="0" defaultValue={pty ? pty.limit : 0} />
+                <Input name="limit" type="number" min="0" step="0.01" defaultValue={pty ? pty.limit : 0} />
               </Field>
               <Field label="Payment terms (days)">
                 <Input name="terms" type="number" min="0" defaultValue={pty?.terms ?? ""} placeholder="e.g. 30" />
@@ -890,7 +890,7 @@ export function EntryForm({
             </div>
             {!editing && (
               <Field label="Opening balance (Rs.)" hint="What this party already owes you (or you owe a supplier) before you start using the program.">
-                <Input name="opening" type="number" step="1" placeholder="0" />
+                <Input name="opening" type="number" step="0.01" placeholder="0" />
               </Field>
             )}
             {editing && (
@@ -945,10 +945,10 @@ export function EntryForm({
             </div>
             <div className="form-grid">
               <Field label="Purchase price (Rs.)" required>
-                <Input name="cost" type="number" min="0" required defaultValue={prod?.cost} />
+                <Input name="cost" type="number" min="0" step="0.01" required defaultValue={prod?.purchasePrice} />
               </Field>
               <Field label="Sale price (Rs.)" required>
-                <Input name="rate" type="number" min="0" required defaultValue={prod?.rate} />
+                <Input name="rate" type="number" min="0" step="0.01" required defaultValue={prod?.rate} />
               </Field>
             </div>
             <div className="form-grid">
@@ -986,7 +986,7 @@ export function EntryForm({
               <div className="form-grid">
                 {isEnabled("wholesalePrice") && (
                   <Field label="Wholesale price (Rs.)">
-                    <Input name="wholesale" type="number" min="0" defaultValue={prod?.wholesale} />
+                    <Input name="wholesale" type="number" min="0" step="0.01" defaultValue={prod?.wholesale} />
                   </Field>
                 )}
                 <Field label="Minimum stock" hint="You will be warned when stock falls to this level.">
@@ -1019,7 +1019,7 @@ export function EntryForm({
               </Select>
             </Field>
             <Field label="Opening balance (Rs.)" hint="Money already in this account.">
-              <Input name="opening" type="number" step="1" placeholder="0" />
+              <Input name="opening" type="number" step="0.01" placeholder="0" />
             </Field>
           </>
         )}

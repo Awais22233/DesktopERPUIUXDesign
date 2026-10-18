@@ -65,6 +65,7 @@ export function mapProduct(v: Record<string, any>, wholesale: boolean): Product 
     sku: v.sku ?? "",
     stock: v.stock,
     cost: r(v.avg_cost || v.purchase_price),
+    purchasePrice: r(v.purchase_price),
     rate: r(v.sale_price),
     price: r(wholesale && v.wholesale_price != null ? v.wholesale_price : v.sale_price),
     wholesale: v.wholesale_price == null ? undefined : r(v.wholesale_price),

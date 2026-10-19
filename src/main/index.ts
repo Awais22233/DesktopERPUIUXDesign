@@ -277,6 +277,15 @@ function createWindow(): void {
     },
   })
   win.once("ready-to-show", () => win?.show())
+  // If the window's process ever dies, bring the screen back by itself (everything saved is in the database); keep a trace for support.
+  win.webContents.on("render-process-gone", (_e, details) => {
+    log("error", `render-process-gone: ${details.reason} (exit ${details.exitCode})`)
+    if (!quitting && win && !win.isDestroyed()) win.webContents.reload()
+  })
+  win.on("unresponsive", () => log("warn", "window is not responding"))
+  win.webContents.on("console-message", (_e, level, message) => {
+    if (level >= 3) log("error", "screen: " + message.slice(0, 600))
+  })
   // No navigation away from the app and no pop-up windows.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)

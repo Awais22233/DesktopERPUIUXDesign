@@ -25,3 +25,11 @@ describe("money on screen", () => {
     expect(money(0.1 + 0.2)).toBe("Rs. 0.30")
   })
 })
+
+describe("money on screen, zero", () => {
+  it("never shows a negative zero", () => {
+    expect(money(-0)).toBe("Rs. 0")
+    expect(money(-0.001)).toBe("Rs. 0")
+    expect(money(0.004)).toBe("Rs. 0")
+  })
+})

@@ -28,6 +28,18 @@ function result(columns: Col[], rows: Row[], summary: { label: string; value: nu
 
 /** Every report is computed from the transaction tables for the chosen business dates. */
 export function runReport(db: DB, q: ReportRequest): ReportResult {
+  return noNegativeZero(runReportRaw(db, q))
+}
+
+/** A report must never show "-0": adding up a refund and its reversal can leave a negative zero behind. */
+function noNegativeZero<T>(v: T): T {
+  if (typeof v === "number") return (Object.is(v, -0) ? 0 : v) as T
+  if (Array.isArray(v)) return v.map(noNegativeZero) as T
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, noNegativeZero(x)])) as T
+  return v
+}
+
+function runReportRaw(db: DB, q: ReportRequest): ReportResult {
   const off = Number(getSetting(db, "timezone_offset_minutes", "300"))
   const from = dayRange(db, q.from).from
   const to = dayRange(db, q.to).to

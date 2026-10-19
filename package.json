@@ -11,12 +11,12 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test.mjs",
-    "pack:win": "electron-vite build && electron-builder --win --x64 --publish never",
-    "pack:dir": "electron-vite build && electron-builder --dir --publish never",
+    "pack:win": "node scripts/prep-icon.mjs && electron-vite build && electron-builder --win --x64 --publish never",
+    "pack:dir": "node scripts/prep-icon.mjs && electron-vite build && electron-builder --dir --publish never",
     "postinstall": "electron-builder install-app-deps",
     "license": "node tools/license.mjs",
     "e2e": "node e2e/run.mjs",
-    "pack:linux": "electron-vite build && electron-builder --linux --x64 --publish never",
+    "pack:linux": "node scripts/prep-icon.mjs && electron-vite build && electron-builder --linux --x64 --publish never",
     "license:page": "node tools/build-generator.mjs"
   },
   "dependencies": {

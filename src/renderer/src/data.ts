@@ -4,6 +4,7 @@ export type { Party, Product, CartItem, Transaction, Collection, Expense }
 
 /** Whole rupees when the amount is whole; otherwise exactly two decimals, so paisa are never rounded away on screen or on a bill. */
 export const money = (n: number) => {
+  if (Math.abs(n) < 0.005) n = 0 // never "Rs. -0"
   const whole = Math.round(n * 100) % 100 === 0
   return "Rs. " + n.toLocaleString("en-PK", whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }

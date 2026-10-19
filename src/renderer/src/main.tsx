@@ -6,6 +6,7 @@ import { ConfigProvider } from './config'
 import { BusinessProvider } from './business'
 import { LicenseGate } from './Activation'
 import { AuthGate } from './Auth'
+import { ErrorBoundary } from './ErrorBoundary'
 import { applyTextSize, readTextSize } from './display'
 
 applyTextSize(readTextSize()) // before anything is drawn, so the first screen already has the right size
@@ -15,6 +16,7 @@ const root = ReactDOM.createRoot(document.getElementById('root')!)
 root.render(
   window.api ? (
     <React.StrictMode>
+      <ErrorBoundary>
       <LicenseGate>
         <BusinessProvider>
           <AuthGate>
@@ -24,6 +26,7 @@ root.render(
           </AuthGate>
         </BusinessProvider>
       </LicenseGate>
+      </ErrorBoundary>
     </React.StrictMode>
   ) : (
     <div style={{ padding: 40, fontFamily: 'sans-serif' }}>

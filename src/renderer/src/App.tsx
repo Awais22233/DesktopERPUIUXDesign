@@ -78,6 +78,7 @@ import { money, today, setToday, L, type Collection, type Party, type Product, t
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
 import { useSession } from "./Auth"
+import type { Permission } from "@core/permissions"
 import { ColourDot, useColourLibraryLoader } from "./colours"
 import { bumpData, fetchAllPages, useDebounced, useRemote } from "./remote"
 import type { Product as CountProduct } from "@shared/models"
@@ -107,6 +108,8 @@ const navGroups: {
     icon: LucideIcon
     shortcut?: string
     flag?: FlagKey
+    /** shown only to people who hold this permission */
+    perm?: Permission
   }[]
 }[] = [
   {
@@ -133,8 +136,8 @@ const navGroups: {
   {
     label: "ADMINISTRATION",
     items: [
-      { title: "Users & Permissions", icon: ShieldCheck },
-      { title: "Settings", icon: Settings2 },
+      { title: "Users & Permissions", icon: ShieldCheck, perm: "users.manage" },
+      { title: "Settings", icon: Settings2, perm: "settings.manage" },
     ],
   },
 ]
@@ -1902,7 +1905,7 @@ export default function App() {
             <div className="nav-group" key={group.label}>
               <div className="nav-label">{group.label}</div>
               {group.items
-                .filter((item) => !item.flag || isEnabled(item.flag))
+                .filter((item) => (!item.flag || isEnabled(item.flag)) && (!item.perm || session.can(item.perm)))
                 .map((item) => (
                   <Action
                     key={item.title}

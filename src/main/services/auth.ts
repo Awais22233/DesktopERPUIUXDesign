@@ -35,14 +35,18 @@ const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   Viewer: ["report.view"],
 }
 
-/** Idempotent: creates the system roles and (re)syncs their permission sets. */
+/**
+ * Idempotent: creates the system roles with their starting permissions. A role that already exists is left alone,
+ * so the owner's changes on the Users & Permissions screen are never undone by restarting the application.
+ */
 export function seedRoles(db: DB): void {
   tx(db, () => {
     for (const [name, perms] of Object.entries(ROLE_PERMISSIONS)) {
-      db.prepare("INSERT OR IGNORE INTO roles(name, is_system) VALUES (?,1)").run(name)
+      const created = db.prepare("INSERT OR IGNORE INTO roles(name, is_system) VALUES (?,1)").run(name).changes > 0
       const role = db.prepare("SELECT id FROM roles WHERE name = ?").get(name) as { id: number }
-      db.prepare("DELETE FROM role_permissions WHERE role_id = ?").run(role.id)
-      for (const p of perms) db.prepare("INSERT INTO role_permissions(role_id, permission) VALUES (?,?)").run(role.id, p)
+      if (name === "Owner / Admin") db.prepare("DELETE FROM role_permissions WHERE role_id = ?").run(role.id) // the owner always has everything
+      else if (!created) continue
+      for (const p of perms) db.prepare("INSERT OR IGNORE INTO role_permissions(role_id, permission) VALUES (?,?)").run(role.id, p)
     }
   })
 }

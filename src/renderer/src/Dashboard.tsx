@@ -1,6 +1,7 @@
 import { L, today } from "./data"
 import type { DashboardData } from "@shared/models"
 import { useConfig } from "./config"
+import { useSession } from "./Auth"
 import { useState } from "react"
 import { Check } from "lucide-react"
 import {
@@ -145,6 +146,7 @@ export default function Dashboard({
   open,
 }: Props) {
   const { isEnabled } = useConfig()
+  const session = useSession()
   const [period, setPeriod] = useState("This week")
   const [activity, setActivity] = useState("Recent sales")
   const [hover, setHover] = useState<number | null>(null)
@@ -176,7 +178,8 @@ export default function Dashboard({
       ? [{ title: "Today's recovery", amount: d.todayRecovery, icon: Wallet, delta: "", detail: `${d.todayRecoveryCount} payment${d.todayRecoveryCount === 1 ? "" : "s"} received`, tone: "green" }]
       : []),
     { title: "Today's purchases", amount: d.todayPurchases, icon: ShoppingBag, delta: "", detail: `${d.todayPurchaseCount} purchase invoice${d.todayPurchaseCount === 1 ? "" : "s"}`, tone: "blue" },
-    { title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" },
+    // profit is for people allowed to see reports; a counter salesman does not need it
+    ...(session.can("report.view") ? [{ title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" }] : []),
   ]
   const low = d.lowStock
   const rows =

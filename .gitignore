@@ -7,3 +7,4 @@ dist
 *.pem
 .erp-license/
 license.key
+build/icon.png

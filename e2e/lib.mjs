@@ -36,7 +36,8 @@ export async function launch(profile, client, opts = {}) {
   })
   await page.waitForSelector("text=Activate your software", { timeout: 25000 })
   const status = await page.evaluate(() => window.api.invoke("license:status"))
-  const key = cli(env, "issue", "--client", client, "--profile", profile, "--machine", status.data.machineId)
+  const issueKey = (o = {}) => cli(env, "issue", "--client", client, "--profile", profile, "--machine", status.data.machineId, ...(o.expires ? ["--expires", o.expires] : []))
+  const key = issueKey()
   await page.getByPlaceholder("Paste the license key here").fill(key)
   await page.getByRole("button", { name: "Activate" }).click()
 
@@ -65,5 +66,5 @@ export async function launch(profile, client, opts = {}) {
     }
     console.log("\nAll steps passed with no page errors")
   }
-  return { app, page, step, root, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
+  return { app, page, step, root, issueKey, machineId: status.data.machineId, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
 }

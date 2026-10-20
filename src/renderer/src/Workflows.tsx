@@ -4,6 +4,7 @@ import { BrandMark, useBusiness } from "./business"
 import { useConfig } from "./config"
 import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
 import { ColourChipsMulti, ColourPicker, FabricSwatch } from "./colours"
+import { loadDraft, saveDraft } from "./drafts"
 import { api } from "./backend"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
@@ -100,15 +101,23 @@ export function SalesWorkspace({
       /* not saved; still works for this session */
     }
   }
-  const [party, setParty] = useState(!purchase && profile === "cosmetics" && walkInId ? walkInId : "")
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [method, setMethod] = useState("Cash")
-  const [paid, setPaid] = useState("")
-  const [account, setAccount] = useState(accounts[0]?.name ?? "")
-  const [discount, setDiscount] = useState("0")
+  const kind = purchase ? "purchase" : "sale"
+  const draft = useRef(loadDraft(kind)).current
+  const [party, setParty] = useState(draft?.party ?? (!purchase && profile === "cosmetics" && walkInId ? walkInId : ""))
+  const [cart, setCart] = useState<CartItem[]>(draft?.cart ?? [])
+  const [method, setMethod] = useState(draft?.method ?? "Cash")
+  const [paid, setPaid] = useState(draft?.paid ?? "")
+  const [account, setAccount] = useState(draft?.account ?? accounts[0]?.name ?? "")
+  const [discount, setDiscount] = useState(draft?.discount ?? "0")
   const [error, setError] = useState("")
-  const [invoice, setInvoice] = useState("")
-  const [invoiceDate, setInvoiceDate] = useState(today)
+  const [invoice, setInvoice] = useState(draft?.invoice ?? "")
+  const [invoiceDate, setInvoiceDate] = useState(draft?.invoiceDate ?? today)
+  const [saving, setSaving] = useState(false)
+  const savedCart = useRef<unknown>(null)
+  const savingNow = useRef(false) // a double click or a repeated F8 must never save the same bill twice
+  useEffect(() => {
+    saveDraft(kind, cart.length ? { party, cart, method, paid, account, discount, invoice, invoiceDate } : undefined)
+  }, [kind, party, cart, method, paid, account, discount, invoice, invoiceDate])
   const subtotal = cart.reduce((sum, i) => sum + i.qty * i.rate - i.discount, 0)
   const total = Math.max(0, subtotal - Number(discount))
   const received =
@@ -117,40 +126,44 @@ export function SalesWorkspace({
   function addProduct(p: Product) {
     known.current.set(p.id, p)
     if (!purchase && p.stock === 0) return
-    const existing = cart.find((c) => c.productId === p.id)
-    if (existing) update(p.id, "qty", existing.qty + 1)
-    else
-      setCart([
-        ...cart,
-        {
-          productId: p.id,
-          name: p.name,
-          color: p.color,
-          size: p.size,
-          qty: 1,
-          rate: purchase ? p.purchasePrice : p.price,
-          discount: 0,
-        },
-      ])
+    // functional update: a fast scan right after a save must never work from an old copy of the cart
+    setCart((cur) =>
+      cur.some((c) => c.productId === p.id)
+        ? cur.map((c) => (c.productId === p.id ? { ...c, qty: c.qty + 1 } : c))
+        : [...cur, { productId: p.id, name: p.name, color: p.color, size: p.size, qty: 1, rate: purchase ? p.purchasePrice : p.price, discount: 0 }],
+    )
     setError("")
   }
   function update(id: string, key: string, value: number | string) {
-    setCart(cart.map((c) => (c.productId === id ? { ...c, [key]: value } : c)))
+    setCart((cur) => cur.map((c) => (c.productId === id ? { ...c, [key]: value } : c)))
   }
   async function save(print: boolean) {
-    if (!party) return setError(`Select a ${purchase ? "supplier" : "party"} before saving.`)
-    if (!cart.length) return setError("Add at least one product to the invoice.")
+    if (savingNow.current || cart === savedCart.current) return // already saving, or a stale copy of a bill that is already saved
+    savingNow.current = true
+    setSaving(true)
+    let done = false
+    try {
+      done = await saveBill(print)
+      if (done) savedCart.current = cart
+    } finally {
+      setSaving(false)
+      savingNow.current = false
+    }
+  }
+  async function saveBill(print: boolean): Promise<boolean> {
+    if (!party) return fail(`Select a ${purchase ? "supplier" : "party"} before saving.`)
+    if (!cart.length) return fail("Add at least one product to the invoice.")
     if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > c.qty * c.rate))
-      return setError(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
+      return fail(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
     if (!purchase && cart.some((c) => known.current.has(c.productId) && c.qty > known.current.get(c.productId)!.stock))
-      return setError("The quantity exceeds available stock. Please adjust the quantity.")
+      return fail("The quantity exceeds available stock. Please adjust the quantity.")
     const twoDecimals = (x: number) => Math.abs(x * 100 - Math.round(x * 100)) < 0.001
     if (cart.some((c) => !twoDecimals(c.rate) || !twoDecimals(c.discount)) || !twoDecimals(Number(discount)) || !twoDecimals(received))
-      return setError("Rates, discounts and payments can have at most 2 decimal places (paisa).")
-    if (Number(discount) < 0 || Number(discount) > subtotal) return setError("Invoice discount must be between zero and the subtotal.")
+      return fail("Rates, discounts and payments can have at most 2 decimal places (paisa).")
+    if (Number(discount) < 0 || Number(discount) > subtotal) return fail("Invoice discount must be between zero and the subtotal.")
     if (received > total || received < 0 || (method === "Partial" && (!received || received >= total)))
-      return setError("Enter a partial payment greater than zero and less than the total.")
-    if (method !== "Credit" && received > 0 && !account) return setError("Choose the account the payment goes into.")
+      return fail("Enter a partial payment greater than zero and less than the total.")
+    if (method !== "Credit" && received > 0 && !account) return fail("Choose the account the payment goes into.")
     const saved = await onSave(
       {
         id: "",
@@ -168,12 +181,17 @@ export function SalesWorkspace({
       },
       print,
     )
-    if (!saved) return setError("Could not save. Nothing was changed; your invoice has been kept.")
+    if (!saved) return fail("Could not save. Nothing was changed; your invoice has been kept.")
     setInvoice("")
     setCart([])
     setPaid("")
     setDiscount("0")
     setError("")
+    return true
+  }
+  function fail(msg: string) {
+    setError(msg)
+    return false
   }
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -471,6 +489,7 @@ export function SalesWorkspace({
                 {parties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
+                    {p.city && parties.filter((q) => q.name.toLowerCase() === p.name.toLowerCase()).length > 1 ? ` — ${p.city}` : ""}
                   </option>
                 ))}
               </Select>
@@ -576,7 +595,7 @@ export function SalesWorkspace({
             <Button
               variant="primary"
               className="full-width"
-              disabled={!cart.length}
+              disabled={!cart.length || saving}
               onClick={() => save(false)}
             >
               <Save size={16} />
@@ -585,7 +604,7 @@ export function SalesWorkspace({
             </Button>
             <Button
               className="full-width"
-              disabled={!cart.length}
+              disabled={!cart.length || saving}
               onClick={() => save(true)}
             >
               <Printer size={16} />
@@ -668,6 +687,8 @@ export function EntryForm({
       {a.name}
     </option>
   ))
+  const [submitting, setSubmitting] = useState(false)
+  const submittingNow = useRef(false)
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
@@ -702,7 +723,13 @@ export function EntryForm({
         data.photoFull = photo.full
       } else if (photo.kind === "remove") data.photoRemove = "1"
     }
-    onSubmit(data)
+    if (submittingNow.current) return // a double click or a repeated Enter must not save twice
+    submittingNow.current = true
+    setSubmitting(true)
+    void Promise.resolve(onSubmit(data)).finally(() => {
+      submittingNow.current = false
+      setSubmitting(false)
+    })
   }
   const dateField = type !== "party" && type !== "user" && type !== "product" && type !== "account"
   return (
@@ -724,6 +751,7 @@ export function EntryForm({
                 {parties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
+                    {p.city && parties.filter((q) => q.name.toLowerCase() === p.name.toLowerCase()).length > 1 ? ` — ${p.city}` : ""}
                   </option>
                 ))}
               </Select>
@@ -1065,7 +1093,7 @@ export function EntryForm({
         <Button type="button" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary">
+        <Button type="submit" variant="primary" disabled={submitting}>
           <Check size={16} />
           {type === "recovery"
             ? "Save & view receipt"
@@ -1269,6 +1297,8 @@ export function InvoicePreview({
   thermalWidth?: string
 }) {
   const [voiding, setVoiding] = useState(false)
+  const [voidBusy, setVoidBusy] = useState(false)
+  const voidNow = useRef(false)
   const [reason, setReason] = useState("")
   const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
   const { business } = useBusiness()
@@ -1324,7 +1354,19 @@ export function InvoicePreview({
           </Field>
           <div className="modal-footer">
             <Button onClick={() => setVoiding(false)}>Keep invoice</Button>
-            <Button variant="primary" disabled={!reason.trim()} onClick={() => void onVoid(reason.trim())}>
+            <Button
+              variant="primary"
+              disabled={!reason.trim() || voidBusy}
+              onClick={() => {
+                if (voidNow.current) return
+                voidNow.current = true
+                setVoidBusy(true)
+                void Promise.resolve(onVoid(reason.trim())).finally(() => {
+                  voidNow.current = false
+                  setVoidBusy(false)
+                })
+              }}
+            >
               Cancel invoice
             </Button>
           </div>

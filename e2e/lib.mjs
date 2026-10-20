@@ -9,9 +9,9 @@ const require = createRequire(import.meta.url)
 export const root = resolve(new URL("..", import.meta.url).pathname)
 
 /** Starts the built app with a clean data folder and a license signed by a throw-away key. */
-export async function launch(profile, client) {
+export async function launch(profile, client, opts = {}) {
   const work = mkdtempSync(join(tmpdir(), "erp-e2e-"))
-  const data = join(work, "data")
+  const data = join(work, opts.dataName || "data")
   const shots = process.env.E2E_SHOTS || join(work, "shots")
   mkdirSync(data, { recursive: true })
   mkdirSync(shots, { recursive: true })
@@ -57,7 +57,7 @@ export async function launch(profile, client) {
   const nav = (name) => page.locator("aside, nav").getByText(name, { exact: true }).first().click()
   const finish = async () => {
     for (const p of problems) console.log("PROBLEM " + p)
-    await app.close()
+    await app.close().catch(() => {})
     rmSync(work, { recursive: true, force: true })
     if (failed || problems.length) {
       console.log(`\n${failed} step(s) failed, ${problems.length} page problem(s)`)
@@ -65,5 +65,5 @@ export async function launch(profile, client) {
     }
     console.log("\nAll steps passed with no page errors")
   }
-  return { app, page, step, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
+  return { app, page, step, root, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
 }

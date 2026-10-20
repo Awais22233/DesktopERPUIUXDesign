@@ -52,6 +52,9 @@ export function saveParty(db: DB, actor: Actor, kind: "customer" | "supplier", f
   return tx(db, () => {
     const table = kind === "customer" ? "parties" : "suppliers"
     const status = f.active === false ? "inactive" : "active"
+    const sameCity = cityId(db, f.city)
+    const clash = db.prepare(`SELECT id FROM ${table} WHERE name = ? COLLATE NOCASE AND city_id IS ? AND id != ?`).get(name, sameCity, f.id ?? 0)
+    if (clash) throw new AppError("VALIDATION", `${kind === "customer" ? "A party" : "A supplier"} named "${name}" already exists${f.city?.trim() ? ` in ${f.city.trim()}` : ""}. Use a different name or add the city.`)
     if (f.id) {
       const row = db.prepare(`SELECT id, ${kind === "customer" ? "is_walk_in" : "0 AS is_walk_in"} FROM ${table} WHERE id = ?`).get(f.id) as { id: number; is_walk_in: number } | undefined
       if (!row) throw new AppError("NOT_FOUND", "Record not found")

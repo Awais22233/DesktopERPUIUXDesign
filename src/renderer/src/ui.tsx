@@ -467,25 +467,22 @@ export function Toast({
     </div>
   )
 }
+/** One CSV cell: quoted, and a leading = + - @ is defused so Excel never runs a typed name as a formula. */
+export function csvCell(value: unknown): string {
+  let t = String(value ?? "")
+  if (/^[=+\-@\t\r]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) t = "'" + t
+  return '"' + t.replace(/"/g, '""') + '"'
+}
+/** "minStock" -> "Min stock" so the sheet has readable headings. */
+export function csvHeading(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
 export function exportCSV(name: string, rows: object[]) {
   const keys = Object.keys(rows[0] || {})
-  const csv = [
-    keys.join(","),
-    ...rows.map((row) =>
-      keys
-        .map(
-          (key) =>
-            '"' +
-            String((row as Record<string, unknown>)[key] ?? "").replace(
-              /"/g,
-              '""',
-            ) +
-            '"',
-        )
-        .join(","),
-    ),
-  ].join("\n")
-  downloadFile(name + ".csv", csv, "text/csv")
+  const body = [keys.map((k) => csvCell(csvHeading(k))).join(","), ...rows.map((row) => keys.map((key) => csvCell((row as Record<string, unknown>)[key])).join(","))].join("\r\n")
+  // the BOM makes Excel read Urdu and other non-English names correctly
+  downloadFile(name + ".csv", "\ufeff" + body + "\r\n", "text/csv;charset=utf-8")
 }
 export function downloadFile(
   name: string,

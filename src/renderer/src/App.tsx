@@ -80,6 +80,7 @@ import { api } from "./backend"
 import { useSession } from "./Auth"
 import type { Permission } from "@core/permissions"
 import { ColourDot, useColourLibraryLoader } from "./colours"
+import { clearDrafts } from "./drafts"
 import { bumpData, fetchAllPages, useDebounced, useRemote } from "./remote"
 import type { Product as CountProduct } from "@shared/models"
 
@@ -1699,7 +1700,7 @@ export default function App() {
               variant="primary"
               onClick={() => {
                 closeModal()
-                void session.logout()
+                clearDrafts(), void session.logout()
               }}
             >
               Lock workspace

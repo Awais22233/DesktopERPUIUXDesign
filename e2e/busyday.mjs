@@ -136,7 +136,11 @@ async function doSale(n) {
   await page.locator(".payment-options button", { hasText: new RegExp("^" + method + "$") }).click()
   if (method === "Partial") await page.getByLabel("Amount paid").fill(String(R(paid)))
   const shown = money(await page.locator(".grand-total strong").innerText())
-  if (shown !== total) bug(`sale ${n}: screen shows Grand total ${R(shown)} but the lines add to ${R(total)}`)
+  if (shown !== total) {
+    const cart = await page.locator("table tbody tr").allInnerTexts()
+    const vals = await page.locator("table tbody input").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") + "=" + e.value))
+    bug(`sale ${n}: screen shows Grand total ${R(shown)} but the lines add to ${R(total)} :: model ${lines.map((l) => `${l.item.name} x${l.qty} @${R(l.rate ?? l.item.rate)} -${R(l.discount ?? 0)}`).join("; ")} :: screen ${cart.map((c) => c.replace(/\s+/g, " ")).join(" / ")} :: ${vals.join(", ")}`)
+  }
   await page.getByRole("button", { name: /Save sale/ }).click()
   await page.waitForSelector(`text=/${toastRe.source}/i`, { timeout: 15000 }).catch(() => {})
   const ms = Math.round(performance.now() - t0)
@@ -284,6 +288,7 @@ await step("shop owner's mistakes are refused politely (no party, empty bill, to
   await page.getByLabel(`Quantity of ${it.name}`).fill("-3")
   await refused("/whole numbers|Check quantities/i")
   if ((await api("docs:list", { kind: "sale", pageSize: 1 })).summary.count !== 0) throw new Error("a refused sale was saved")
+  await page.evaluate(() => sessionStorage.clear()) // a half-made bill now survives F5 on purpose; this test wants a clean screen
   await page.reload()
   await page.waitForSelector("text=Business overview")
 })

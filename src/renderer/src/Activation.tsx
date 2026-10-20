@@ -9,7 +9,9 @@ function ActivationScreen({ status, onActivated }: { status: LicenseStatus; onAc
   const [error, setError] = useState(status.state === "missing" ? "" : status.message)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
-  const blocked = status.state === "wrong_machine" || status.state === "expired" || status.state === "wrong_profile" || status.state === "clock_tampered"
+  // A new key can always be pasted: an expired or wrong key must be replaceable (renewal) without reinstalling.
+  const blocked = false
+  const canRenew = status.state === "expired" || status.state === "wrong_machine" || status.state === "wrong_profile"
 
   const copy = async () => {
     try {
@@ -57,6 +59,7 @@ function ActivationScreen({ status, onActivated }: { status: LicenseStatus; onAc
           </Field>
         )}
         {error && <div className="form-error">{error}</div>}
+        {canRenew && <p>Your business data is safe on this computer. Paste the new license key above and everything will open as before.</p>}
         {!blocked && (
           <Button variant="primary" className="full-width" disabled={busy || !key.trim()} onClick={activate}>
             {busy ? "Checking…" : "Activate"}

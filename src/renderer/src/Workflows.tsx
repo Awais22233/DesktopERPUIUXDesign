@@ -6,7 +6,7 @@ import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
 import { ColourChipsMulti, ColourPicker, FabricSwatch } from "./colours"
 import { loadDraft, saveDraft } from "./drafts"
 import { api } from "./backend"
-import { whatsappText } from "@shared/whatsapp"
+import { billToPng, copyPng } from "./billImage"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
 import {
@@ -1303,6 +1303,7 @@ export function InvoicePreview({
   const voidNow = useRef(false)
   const [reason, setReason] = useState("")
   const [copied, setCopied] = useState<"" | "ok" | "fail">("")
+  const [copying, setCopying] = useState(false)
   const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
   const { business } = useBusiness()
   const receipt = !!collection
@@ -1317,30 +1318,20 @@ export function InvoicePreview({
   const round2 = (n: number) => Math.round(n * 100) / 100
   /** A negative balance means the party has paid in advance: say so instead of printing a minus sign. */
   const balText = (n: number) => (n < 0 ? `${money(-n)} advance` : money(n))
-  /** Puts the bill on the clipboard as WhatsApp-ready text; the user pastes it into a chat. */
+  /** Copies the bill as a picture; the user pastes it into a WhatsApp chat. */
   async function copyForWhatsApp() {
-    if (!doc) return
-    const text = whatsappText(doc, receipt ? "receipt" : purchase ? "purchase" : "sale", business)
-    let ok = false
+    const el = paperRef.current
+    if (!el || copying) return
+    setCopying(true)
     try {
-      await navigator.clipboard.writeText(text)
-      ok = true
+      await copyPng(await billToPng(el))
+      setCopied("ok")
     } catch {
-      try {
-        const box = document.createElement("textarea")
-        box.value = text
-        box.style.position = "fixed"
-        box.style.opacity = "0"
-        document.body.appendChild(box)
-        box.select()
-        ok = document.execCommand("copy")
-        box.remove()
-      } catch {
-        ok = false
-      }
+      setCopied("fail")
+    } finally {
+      setCopying(false)
+      window.setTimeout(() => setCopied(""), 3500)
     }
-    setCopied(ok ? "ok" : "fail")
-    window.setTimeout(() => setCopied(""), 3000)
   }
   useEffect(() => {
     const el = paperRef.current
@@ -1601,9 +1592,9 @@ export function InvoicePreview({
       </div>
       <div className="modal-footer">
         <Button onClick={onClose}>Close</Button>
-        <Button onClick={() => void copyForWhatsApp()} aria-live="polite">
+        <Button onClick={() => void copyForWhatsApp()} disabled={copying} aria-live="polite">
           {copied === "ok" ? <Check size={15} /> : <Copy size={15} />}
-          {copied === "ok" ? "Copied - paste in WhatsApp" : copied === "fail" ? "Could not copy" : "Copy for WhatsApp"}
+          {copying ? "Preparing…" : copied === "ok" ? "Bill image copied - paste in WhatsApp" : copied === "fail" ? "Could not copy the image" : "Copy bill image for WhatsApp"}
         </Button>
         <Button onClick={() => window.print()}>
           <FileText size={15} />

@@ -299,4 +299,27 @@ await step("Export CSV from Customers opens in Excel correctly (BOM, Urdu, quote
   must(!/minStock|[a-z][A-Z]/.test(head), `raw key names in the heading: ${head.slice(0, 120)}`)
 })
 
+// ---------------------------------------------------------------- WhatsApp copy
+await step("Copy for WhatsApp puts the whole bill on the clipboard (items, totals, balance, Urdu name intact)", async () => {
+  await page.evaluate(() => sessionStorage.clear()) // drop the half-made bill left by the earlier F5 step
+  await page.reload()
+  await page.waitForSelector("text=Business overview")
+  await pos()
+  await page.locator("select", { hasText: "Select party" }).selectOption({ label: C[1] })
+  await pickProduct("Bravo Black")
+  await page.getByLabel(/Quantity of Bravo Black/).fill("3")
+  await page.getByRole("button", { name: "Credit", exact: true }).first().click()
+  await page.getByRole("button", { name: /Save & print/ }).first().click()
+  await page.waitForSelector("text=/Sale INV-\\d+ saved/")
+  await app.evaluate(({ clipboard }) => clipboard.writeText("old clipboard"))
+  await page.getByRole("button", { name: /Copy for WhatsApp/ }).click()
+  await page.waitForSelector("text=/Copied - paste in WhatsApp/")
+  const text = await app.evaluate(({ clipboard }) => clipboard.readText())
+  must(text.includes("*SALES INVOICE*"), "clipboard has no invoice heading: " + text.slice(0, 80))
+  must(text.includes("Bravo Black") && text.includes("3 x Rs."), "line missing from the copied bill")
+  must(text.includes(C[1]), "customer name missing")
+  must(/\*Bill total: Rs\. [\d,.]+\*/.test(text) && /Remaining balance/.test(text), "totals or balance missing")
+  must(!/undefined|NaN|\[object/.test(text), "bad value in the copied text")
+})
+
 await finish()

@@ -455,7 +455,7 @@ td strong { color: #46526a; font-weight: 550; }
 .modal-heading p { margin-top: 7px; color: #929fb2; font-size: 11px; line-height: 1.7; }
 .modal-body { padding: 23px 24px 8px; }
 .modal-body > p { font-size: 12px; line-height: 1.8; margin-bottom: 18px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 9px; padding: 17px 24px; border-top: 1px solid var(--border); background: #fcfcfe; }
+.modal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; padding: 17px 24px; border-top: 1px solid var(--border); background: #fcfcfe; }
 .modal-footer .btn { min-height: 36px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-balance { display: flex; flex-direction: column; gap: 9px; border: 1px solid #e6eaf4; background: #f6f8fc; padding: 18px; border-radius: 6px; margin-bottom: 21px; }

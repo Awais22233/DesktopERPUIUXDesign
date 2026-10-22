@@ -6,6 +6,7 @@ import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
 import { ColourChipsMulti, ColourPicker, FabricSwatch } from "./colours"
 import { loadDraft, saveDraft } from "./drafts"
 import { api } from "./backend"
+import { whatsappText } from "@shared/whatsapp"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
 import {
@@ -14,6 +15,7 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Copy,
   LayoutGrid,
   List,
   CreditCard,
@@ -1300,6 +1302,7 @@ export function InvoicePreview({
   const [voidBusy, setVoidBusy] = useState(false)
   const voidNow = useRef(false)
   const [reason, setReason] = useState("")
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("")
   const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
   const { business } = useBusiness()
   const receipt = !!collection
@@ -1314,6 +1317,31 @@ export function InvoicePreview({
   const round2 = (n: number) => Math.round(n * 100) / 100
   /** A negative balance means the party has paid in advance: say so instead of printing a minus sign. */
   const balText = (n: number) => (n < 0 ? `${money(-n)} advance` : money(n))
+  /** Puts the bill on the clipboard as WhatsApp-ready text; the user pastes it into a chat. */
+  async function copyForWhatsApp() {
+    if (!doc) return
+    const text = whatsappText(doc, receipt ? "receipt" : purchase ? "purchase" : "sale", business)
+    let ok = false
+    try {
+      await navigator.clipboard.writeText(text)
+      ok = true
+    } catch {
+      try {
+        const box = document.createElement("textarea")
+        box.value = text
+        box.style.position = "fixed"
+        box.style.opacity = "0"
+        document.body.appendChild(box)
+        box.select()
+        ok = document.execCommand("copy")
+        box.remove()
+      } catch {
+        ok = false
+      }
+    }
+    setCopied(ok ? "ok" : "fail")
+    window.setTimeout(() => setCopied(""), 3000)
+  }
   useEffect(() => {
     const el = paperRef.current
     if (!thermal || !el) return
@@ -1573,6 +1601,10 @@ export function InvoicePreview({
       </div>
       <div className="modal-footer">
         <Button onClick={onClose}>Close</Button>
+        <Button onClick={() => void copyForWhatsApp()} aria-live="polite">
+          {copied === "ok" ? <Check size={15} /> : <Copy size={15} />}
+          {copied === "ok" ? "Copied - paste in WhatsApp" : copied === "fail" ? "Could not copy" : "Copy for WhatsApp"}
+        </Button>
         <Button onClick={() => window.print()}>
           <FileText size={15} />
           Save PDF

@@ -300,7 +300,7 @@ await step("Export CSV from Customers opens in Excel correctly (BOM, Urdu, quote
 })
 
 // ---------------------------------------------------------------- WhatsApp copy
-await step("Copy for WhatsApp puts the whole bill on the clipboard (items, totals, balance, Urdu name intact)", async () => {
+await step("Copy bill image puts a real picture of the bill on the clipboard (A4 and thermal)", async () => {
   await page.evaluate(() => sessionStorage.clear()) // drop the half-made bill left by the earlier F5 step
   await page.reload()
   await page.waitForSelector("text=Business overview")
@@ -311,15 +311,25 @@ await step("Copy for WhatsApp puts the whole bill on the clipboard (items, total
   await page.getByRole("button", { name: "Credit", exact: true }).first().click()
   await page.getByRole("button", { name: /Save & print/ }).first().click()
   await page.waitForSelector("text=/Sale INV-\\d+ saved/")
-  await app.evaluate(({ clipboard }) => clipboard.writeText("old clipboard"))
-  await page.getByRole("button", { name: /Copy for WhatsApp/ }).click()
-  await page.waitForSelector("text=/Copied - paste in WhatsApp/")
-  const text = await app.evaluate(({ clipboard }) => clipboard.readText())
-  must(text.includes("*SALES INVOICE*"), "clipboard has no invoice heading: " + text.slice(0, 80))
-  must(text.includes("Bravo Black") && text.includes("3 x Rs."), "line missing from the copied bill")
-  must(text.includes(C[1]), "customer name missing")
-  must(/\*Bill total: Rs\. [\d,.]+\*/.test(text) && /Remaining balance/.test(text), "totals or balance missing")
-  must(!/undefined|NaN|\[object/.test(text), "bad value in the copied text")
+  for (const layout of ["A4 invoice", "Thermal receipt"]) {
+    await page.getByLabel("Print layout").selectOption(layout)
+    await wait(400)
+    await app.evaluate(({ clipboard }) => clipboard.clear())
+    await page.getByRole("button", { name: /Copy bill image/ }).click()
+    await page.waitForSelector("text=/Bill image copied/")
+    const img = await app.evaluate(({ clipboard }) => {
+      const i = clipboard.readImage()
+      const { width, height } = i.getSize()
+      const bmp = i.toBitmap()
+      let dark = 0
+      for (let k = 0; k < bmp.length; k += 4) if (bmp[k] < 140 && bmp[k + 1] < 140 && bmp[k + 2] < 140) dark++
+      return { width, height, dark, png: i.toPNG().toString("base64") }
+    })
+    must(img.width > 300 && img.height > 300, `${layout}: picture too small (${img.width}x${img.height})`)
+    must(img.dark > 1500, `${layout}: picture looks blank (${img.dark} dark pixels)`)
+    if (process.env.E2E_SHOTS) (await import("node:fs")).writeFileSync(`${process.env.E2E_SHOTS}/bill-${layout.split(" ")[0]}.png`, Buffer.from(img.png, "base64"))
+    console.log(`      ${layout}: ${img.width}x${img.height}px, ${img.dark} text pixels`)
+  }
 })
 
 await finish()

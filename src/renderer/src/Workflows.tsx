@@ -1399,50 +1399,47 @@ export function InvoicePreview({
           layout === "Thermal receipt" ? `thermal ${thermalWidth === "58" ? "w58" : "w80"}` : ""
         }`}
       >
-        <div className="invoice-brand">
-          <BrandMark logo={business.logo} />
-          <div>
-            <Heading level={2}>{business.name}</Heading>
-            {business.tagline && <p>{business.tagline}</p>}
+        <div className="invoice-head">
+          <div className="invoice-company">
+            <BrandMark logo={business.logo} />
+            <div className="invoice-company-text">
+              <Heading level={2}>{business.name}</Heading>
+              {business.tagline && <p className="invoice-tagline">{business.tagline}</p>}
+              <p className="invoice-address">
+                {[business.address, business.city && !business.address.toLowerCase().includes(business.city.toLowerCase()) ? business.city : ""].filter(Boolean).join(", ")}
+                {business.phone && (
+                  <>
+                    <br />
+                    Phone: {business.phone}
+                  </>
+                )}
+                {business.email && (
+                  <>
+                    <br />
+                    {business.email}
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="invoice-doc">
+            <Heading level={3}>{receipt ? "PAYMENT RECEIPT" : purchase ? "PURCHASE INVOICE" : "SALES INVOICE"}</Heading>
+            <strong className="invoice-no">{transaction?.id || collection?.id}</strong>
+            <span className="invoice-date">
+              {transaction?.date || collection?.date}
+              {(transaction?.time || collection?.time) && ` · ${transaction?.time || collection?.time}`}
+            </span>
           </div>
         </div>
-        <p className="invoice-address">
-          {[business.address, business.city && !business.address.toLowerCase().includes(business.city.toLowerCase()) ? business.city : ""].filter(Boolean).join(", ")}
-          {business.phone && (
-            <>
-              <br />
-              Phone: {business.phone}
-            </>
-          )}
-          {business.email && (
-            <>
-              <br />
-              {business.email}
-            </>
-          )}
-        </p>
         {transaction?.status === "void" && <div className="invoice-void">CANCELLED — this invoice is void</div>}
-        <div className="invoice-title">
-          <Heading level={3}>
-            {receipt
-              ? "PAYMENT RECEIPT"
-              : purchase
-                ? "PURCHASE INVOICE"
-                : "SALES INVOICE"}
-          </Heading>
-          <span>{transaction?.id || collection?.id}</span>
-        </div>
         <div className="invoice-meta">
           <div>
             <span>{receipt ? "Received from" : purchase ? "Supplier" : "Bill to"}</span>
             <strong>{transaction?.party || collection?.party}</strong>
           </div>
-          <div>
-            <span>
-              Date: {transaction?.date || collection?.date}
-              {(transaction?.time || collection?.time) && ` · ${transaction?.time || collection?.time}`}
-            </span>
-            <span>Prepared by: {transaction?.user || collection?.user || "—"}</span>
+          <div className="invoice-meta-right">
+            <span>Prepared by</span>
+            <strong>{transaction?.user || collection?.user || "—"}</strong>
           </div>
         </div>
         {receipt ? (

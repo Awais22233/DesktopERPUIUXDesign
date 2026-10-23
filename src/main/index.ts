@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron"
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
@@ -10,6 +10,7 @@ import { initLogger, log } from "./logger"
 import { BackupManager } from "./backupManager"
 import { integrityCheck, openDatabase, type DB } from "./db/connection"
 import { listBackups, restoreBackup, verifyBackup } from "./db/backup"
+import { restoreCandidates } from "./db/backupInfo"
 import { CHANNELS, type Channel } from "@shared/ipc"
 import { migrate } from "./db/migrate"
 import { migrations } from "./db/migrations"
@@ -218,6 +219,25 @@ async function restoreAndRestart(name: string): Promise<void> {
   app.exit(0)
 }
 
+/** New computer: puts a backup from an outside folder (USB, Google Drive folder) in place, with its photos, and restarts. */
+async function restoreFromFolder(folder: string, name: string): Promise<void> {
+  if (!/^backup-\d{8}-\d{6}-[a-z0-9_-]+\.db$/.test(name)) throw new Error("That is not a backup file")
+  const found = restoreCandidates(folder, { maxSchema: migrations.at(-1)!.id, licenseProfile: currentLicense().profile }).find((c) => c.name === name)
+  if (!found) throw new Error("That backup was not found")
+  if (!found.ok) throw new Error(found.reason ?? "That backup cannot be used")
+  db.close()
+  restoreBackup(found.file, dbFile, backupsDir)
+  const photos = join(folder, "images")
+  if (existsSync(photos)) {
+    mkdirSync(imagesDir, { recursive: true })
+    for (const n of readdirSync(photos)) if (!n.endsWith(".tmp") && !existsSync(join(imagesDir, n))) copyFileSync(join(photos, n), join(imagesDir, n))
+  }
+  log("warn", `Restored from ${found.file} on a new installation; restarting`)
+  quitting = true
+  if (app.isPackaged || process.env.ERP_NO_RELAUNCH !== "1") app.relaunch() // tests start the next copy themselves
+  app.exit(0)
+}
+
 function registerIpc(): void {
   setLicenseGuard(() => currentLicense().state === "valid")
   setSessionGuard(() => userSession.loggedIn)
@@ -245,6 +265,9 @@ function registerIpc(): void {
     backups: () => backups,
     restore: restoreAndRestart,
     imagesDir,
+    backupsDir,
+    restoreInfo: () => ({ maxSchema: migrations.at(-1)!.id, licenseProfile: currentLicense().profile }),
+    restoreExternal: restoreFromFolder,
     chooseFolder: async () => {
       const r = win ? await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] }) : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] })
       return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]!
@@ -361,8 +384,41 @@ app.whenReady().then(async () => {
 })
 
 // Final automatic backup when the user closes the application.
+/** Tests (never a packaged build) can switch off native dialogs, which would wait for a click. */
+const noDialogs = () => !app.isPackaged && process.env.ERP_NO_DIALOGS === "1"
+
+/**
+ * When a backup drive has been chosen but is not plugged in, and no outside copy was made for a day,
+ * ask before closing: plug it in and press Retry. Returns false if the user chose to stay in the program.
+ */
+function askForBackupDrive(): boolean {
+  if (noDialogs() || !backups) return true
+  const stale = () => {
+    const last = backups.status().lastExternalOkAt
+    return !last || Date.now() - new Date(last).getTime() > 20 * 3600 * 1000
+  }
+  while (backups.targets().length > 0 && !backups.anyTargetAvailable() && stale()) {
+    const choice = dialog.showMessageBoxSync({
+      type: "warning",
+      title: "Backup drive not connected",
+      message: "Your backup USB drive or disk is not connected.",
+      detail: "Connect it now and press Retry, so today's records are also saved on it.\n\nIf you close without it, the backup stays only on this computer.",
+      buttons: ["Retry", "Close without the extra copy", "Stay in the program"],
+      defaultId: 0,
+      cancelId: 2,
+    })
+    if (choice === 1) return true
+    if (choice === 2) return false
+  }
+  return true
+}
+
 app.on("before-quit", (event) => {
   if (quitting || !db || SMOKE) return
+  if (!askForBackupDrive()) {
+    event.preventDefault()
+    return
+  }
   quitting = true
   event.preventDefault()
   const done = () => {

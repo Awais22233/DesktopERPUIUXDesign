@@ -19,7 +19,7 @@ async function app(profile: ProfileId = "cloth") {
   ensureWalkInParty(db)
   seedDefaults(db)
   const session = new Session()
-  const ctx: Ctx = { db: () => db, session, backups: () => { throw new Error("n/a") }, restore: async () => {}, chooseFolder: async () => null }
+  const ctx: Ctx = { db: () => db, session, backups: () => { throw new Error("n/a") }, restore: async () => {}, chooseFolder: async () => null, backupsDir: "", restoreInfo: () => ({ maxSchema: 99 }), restoreExternal: async () => {} }
   const c = createCommands(ctx)
   c["auth:setup"]({ name: "Faraz", username: "faraz", password: "secret1" })
   return { db, c, session }

@@ -1,7 +1,7 @@
 import type { DB } from "./db/connection"
 import { AppError } from "@core/errors"
 import { ALL_PERMISSIONS, PERMISSIONS, requirePermission, type Actor, type Permission } from "@core/permissions"
-import type { Channel, IpcContract, LineIn, PayIn } from "@shared/ipc"
+import type { BackupSummary, Channel, IpcContract, LineIn, PayIn } from "@shared/ipc"
 import { SETTING_KEYS, fmtId, idNumber } from "@shared/models"
 import { audit, getSetting, setSetting, tx } from "./db/util"
 import { hashPassword } from "./services/auth"
@@ -21,6 +21,10 @@ import { getBusiness, setBusiness } from "./services/business"
 import { getConfig, setFlag } from "./services/config"
 import type { Session } from "./session"
 import type { BackupManager } from "./backupManager"
+import { listBackups, testFolderWritable } from "./db/backup"
+import { restoreCandidates, suggestFolders, summarizeBackup, summarizeLive } from "./db/backupInfo"
+
+const slotSettingKey = (slot: 1 | 2) => (slot === 1 ? "backup.secondary_dir" : "backup.secondary_dir2")
 
 export interface Ctx {
   db: () => DB
@@ -29,6 +33,12 @@ export interface Ctx {
   /** Replaces the live data file with a backup and restarts the application. */
   restore: (backupName: string) => Promise<void>
   chooseFolder: () => Promise<string | null>
+  /** The folder where this computer keeps its own backups. */
+  backupsDir: string
+  /** What a fresh installation needs to judge a backup: the newest data format it understands and the license's business type. */
+  restoreInfo: () => { maxSchema: number; licenseProfile?: string }
+  /** Puts a backup found in an outside folder in place (new computer) and restarts. */
+  restoreExternal: (folder: string, name: string) => Promise<void>
   /** Folder for product photos (the data folder's images/ directory). */
   imagesDir?: string
 }
@@ -109,6 +119,10 @@ function jsonList(v: string, max: number): boolean {
 export function createCommands(ctx: Ctx): Required<Handlers> {
   const db = () => ctx.db()
   const actor = (): Actor => ctx.session.actor(db())
+  /** Restoring from an outside folder is only for a brand-new installation that has no users yet. */
+  const requireFreshInstall = () => {
+    if (!ctx.session.needsSetup(db())) throw new AppError("FORBIDDEN", "This is only possible on a new installation. After signing in, use Backup & restore.")
+  }
 
   const h: Required<Handlers> = {
     // ----- never needs a signed-in user: handled in the registration layer -----
@@ -370,15 +384,64 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       await ctx.restore(p.name)
       return null
     },
-    "backup:chooseFolder": async () => {
+    "backup:chooseFolder": async (p) => {
       const a = actor()
       requirePermission(a, "settings.manage")
+      const slot = p?.slot === 2 ? 2 : 1
       const folder = await ctx.chooseFolder()
-      if (folder) {
-        setSetting(db(), "backup.secondary_dir", folder)
-        audit(db(), a.userId, "settings.change", "settings", "backup.secondary_dir", { value: folder })
-      }
+      if (!folder) return { folder: null }
+      const other = getSetting(db(), slot === 1 ? "backup.secondary_dir2" : "backup.secondary_dir", "")
+      const same = (x: string, y: string) => !!y && x.replace(/[\\/]+$/, "").toLowerCase() === y.replace(/[\\/]+$/, "").toLowerCase()
+      if (same(folder, ctx.backupsDir)) return { folder: null, error: "Choose a folder on a different drive. This is the folder the program already uses on this computer." }
+      if (same(folder, other)) return { folder: null, error: "That folder is already used as the other backup copy." }
+      const t = testFolderWritable(folder)
+      if (!t.ok) return { folder: null, error: t.message }
+      setSetting(db(), slotSettingKey(slot), folder)
+      setSetting(db(), `backup.copy${slot}.error`, "")
+      audit(db(), a.userId, "settings.change", "settings", slotSettingKey(slot), { value: folder })
       return { folder }
+    },
+    "backup:clearFolder": (p) => {
+      const a = actor()
+      requirePermission(a, "settings.manage")
+      setSetting(db(), slotSettingKey(p.slot), "")
+      setSetting(db(), `backup.copy${p.slot}.error`, "")
+      setSetting(db(), `backup.copy${p.slot}.ok_at`, "")
+      audit(db(), a.userId, "settings.change", "settings", slotSettingKey(p.slot), { value: "" })
+      return null
+    },
+    "backup:testFolder": (p) => {
+      requirePermission(actor(), "settings.manage")
+      return testFolderWritable(getSetting(db(), slotSettingKey(p.slot), ""))
+    },
+    "backup:status": () => (actor(), ctx.backups().status()),
+    "backup:check": () => {
+      requirePermission(actor(), "settings.manage")
+      const st = ctx.backups().status()
+      const backups: BackupSummary[] = []
+      const newest = listBackups(ctx.backupsDir)[0]
+      if (newest) backups.push(summarizeBackup(newest.file, newest.name, "This computer", newest.modified))
+      for (const t of st.targets) {
+        const f = t.available ? listBackups(t.dir)[0] : undefined
+        if (f) backups.push(summarizeBackup(f.file, f.name, t.dir, f.modified))
+      }
+      setSetting(db(), "backup.last_test_at", new Date().toISOString())
+      return { current: summarizeLive(db()), backups }
+    },
+    "restore:scan": (p) => {
+      requireFreshInstall()
+      const info = ctx.restoreInfo()
+      if (p?.folder) return { folder: p.folder, found: restoreCandidates(p.folder, info), suggested: [] }
+      return { folder: null, found: [], suggested: suggestFolders() }
+    },
+    "restore:chooseFolder": async () => {
+      requireFreshInstall()
+      return { folder: await ctx.chooseFolder() }
+    },
+    "restore:start": async (p) => {
+      requireFreshInstall()
+      await ctx.restoreExternal(p.folder, p.name)
+      return null
     },
   }
   void PERMISSIONS

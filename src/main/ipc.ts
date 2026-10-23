@@ -7,7 +7,7 @@ import { log } from "./logger"
 /** Channels that work before the copy is activated. Everything else is refused until a valid license exists. */
 const OPEN_CHANNELS = new Set<Channel>(["license:status", "license:activate", "app:info"])
 /** Channels that work after activation but before anyone has signed in (the sign-in and first-run screens). */
-const PRE_LOGIN_CHANNELS = new Set<Channel>(["auth:status", "auth:setup", "auth:login", "business:get"])
+const PRE_LOGIN_CHANNELS = new Set<Channel>(["auth:status", "auth:setup", "auth:login", "business:get", "restore:scan", "restore:chooseFolder", "restore:start"])
 let isLicensed: () => boolean = () => false
 let isSignedIn: () => boolean = () => false
 export function setLicenseGuard(fn: () => boolean): void {

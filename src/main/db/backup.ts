@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { integrityCheck, openDatabase, type DB } from "./connection"
 
@@ -84,11 +84,87 @@ export function pruneBackups(dir: string, keep: number): string[] {
   return removed
 }
 
+/**
+ * Copies one backup to an outside folder (USB drive, second disk, Google Drive folder).
+ * The copy is written under a temporary name, checked, and only then given its real name, so an unplugged
+ * drive or a power cut can never leave a half-written file that looks like a good backup.
+ */
 export function copyToSecondary(file: string, secondaryDir: string): string {
   mkdirSync(secondaryDir, { recursive: true })
-  const dest = join(secondaryDir, file.split(/[\\/]/).pop()!)
-  copyFileSync(file, dest)
+  const name = file.split(/[\\/]/).pop()!
+  const dest = join(secondaryDir, name)
+  const part = `${dest}.part`
+  try {
+    copyFileSync(file, part)
+    if (statSync(part).size !== statSync(file).size) throw new Error("The copy is incomplete (the drive may be full or was removed)")
+    const check = verifyBackup(part)
+    if (!check.ok) throw new Error(`The copy did not pass the safety check: ${check.problems.join("; ")}`)
+    renameSync(part, dest)
+  } catch (err) {
+    rmSync(part, { force: true })
+    throw err
+  }
   return dest
+}
+
+const dayKey = (name: string) => name.slice(7, 15) // backup-YYYYMMDD-...
+function weekKey(name: string): string {
+  const y = +name.slice(7, 11), m = +name.slice(11, 13), d = +name.slice(13, 15)
+  const t = Date.UTC(y, m - 1, d)
+  const monday = new Date(t - ((new Date(t).getUTCDay() + 6) % 7) * 86_400_000)
+  return monday.toISOString().slice(0, 10)
+}
+const monthKey = (name: string) => name.slice(7, 13)
+
+export interface Retention {
+  days: number
+  weeks: number
+  months: number
+}
+export const DEFAULT_RETENTION: Retention = { days: 14, weeks: 8, months: 12 }
+
+/**
+ * Grandfather-father-son: which backups to keep. The newest backup of each of the last `days` days,
+ * of each of the last `weeks` weeks, and of each of the last `months` months. Everything else may go.
+ * One bad day (a mistake, a virus) can therefore never replace every good copy.
+ */
+export function selectKeep(names: string[], r: Retention = DEFAULT_RETENTION): Set<string> {
+  const newestFirst = [...names].sort((a, b) => b.localeCompare(a))
+  const keep = new Set<string>()
+  const tier = (key: (n: string) => string, count: number) => {
+    const seen = new Set<string>()
+    for (const n of newestFirst) {
+      const k = key(n)
+      if (seen.has(k)) continue
+      if (seen.size >= count) break
+      seen.add(k)
+      keep.add(n)
+    }
+  }
+  tier(dayKey, r.days)
+  tier(weekKey, r.weeks)
+  tier(monthKey, r.months)
+  if (newestFirst[0]) keep.add(newestFirst[0])
+  return keep
+}
+
+/** Applies `selectKeep` to a folder. Returns the files removed. Never touches pre-migrate / pre-restore safety copies. */
+export function pruneRotation(dir: string, r: Retention = DEFAULT_RETENTION): string[] {
+  const all = listBackups(dir).filter((b) => !/-(pre-migrate|pre-restore)\.db$/.test(b.name))
+  const keep = selectKeep(all.map((b) => b.name), r)
+  const removed: string[] = []
+  for (const b of all) {
+    if (keep.has(b.name)) continue
+    rmSync(b.file, { force: true })
+    removed.push(b.file)
+  }
+  return removed
+}
+
+/** Removes leftovers of interrupted copies. */
+export function cleanPartials(dir: string): void {
+  if (!existsSync(dir)) return
+  for (const n of readdirSync(dir)) if (/^backup-.*\.db\.part$/.test(n)) rmSync(join(dir, n), { force: true })
 }
 
 /**
@@ -108,4 +184,22 @@ export function restoreBackup(backupFile: string, liveFile: string, safetyDir: s
   rmSync(`${liveFile}-wal`, { force: true })
   rmSync(`${liveFile}-shm`, { force: true })
   return safety
+}
+
+/** "Test" button: can we really write to this folder and read it back? Leaves nothing behind. */
+export function testFolderWritable(dir: string): { ok: boolean; message: string } {
+  if (!dir) return { ok: false, message: "No folder has been chosen" }
+  if (!existsSync(dir)) return { ok: false, message: "The folder or drive is not connected right now" }
+  const probe = join(dir, `.erp-write-test-${process.pid}`)
+  try {
+    const token = `ok-${Date.now()}`
+    writeFileSync(probe, token)
+    if (readFileSync(probe, "utf8") !== token) return { ok: false, message: "The folder did not return what was written to it" }
+    return { ok: true, message: "Working. Backups can be copied here." }
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    return { ok: false, message: code === "EACCES" || code === "EPERM" || code === "EROFS" ? "This folder is read-only or not allowed" : `Cannot write to this folder: ${(err as Error).message}` }
+  } finally {
+    rmSync(probe, { force: true })
+  }
 }

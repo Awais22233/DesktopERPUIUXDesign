@@ -36,6 +36,52 @@ export interface BackupInfo {
   size: number
   modified: string
 }
+export interface TargetStatus {
+  slot: 1 | 2
+  dir: string
+  /** the folder exists right now (the drive is plugged in) */
+  available: boolean
+  lastOkAt: string | null
+  error: string | null
+  files: number
+  bytes: number
+}
+export interface BackupStatus {
+  targets: TargetStatus[]
+  /** when any outside copy last succeeded */
+  lastExternalOkAt: string | null
+  /** age of the oldest backup kept on this computer (roughly how long the shop has used the program) */
+  firstBackupAt: string | null
+  lastTestAt: string | null
+}
+/** What a backup contains, read without touching the live data. */
+export interface BackupSummary {
+  name: string
+  where: string
+  createdAt: string
+  ok: boolean
+  problems: string[]
+  sales: number
+  purchases: number
+  customers: number
+  products: number
+  /** total owed by customers in the backup, rupees */
+  receivable: number
+  latestEntry: string | null
+}
+/** A backup found in a folder on a fresh computer. */
+export interface RestoreCandidate {
+  name: string
+  file: string
+  modified: string
+  size: number
+  ok: boolean
+  /** why it cannot be used, when ok is false */
+  reason: string | null
+  business: string | null
+  sales: number
+  customers: number
+}
 
 import type { Snapshot, SessionUser, LedgerView, ReportResult, Product, Transaction, Movement } from "./models"
 
@@ -100,11 +146,18 @@ export interface IpcContract {
   "backup:run": { req: undefined; res: { name: string } }
   "backup:list": { req: undefined; res: BackupInfo[] }
   "backup:restore": { req: { name: string }; res: null }
-  "backup:chooseFolder": { req: undefined; res: { folder: string | null } }
+  "backup:chooseFolder": { req: { slot?: 1 | 2 } | undefined; res: { folder: string | null; error?: string } }
+  "backup:clearFolder": { req: { slot: 1 | 2 }; res: null }
+  "backup:testFolder": { req: { slot: 1 | 2 }; res: { ok: boolean; message: string } }
+  "backup:status": { req: undefined; res: BackupStatus }
+  "backup:check": { req: undefined; res: { current: BackupSummary; backups: BackupSummary[] } }
+  "restore:scan": { req: { folder?: string } | undefined; res: { folder: string | null; found: RestoreCandidate[]; suggested: string[] } }
+  "restore:chooseFolder": { req: undefined; res: { folder: string | null } }
+  "restore:start": { req: { folder: string; name: string }; res: null }
   "health:get": { req: undefined; res: { integrityOk: boolean; lastBackupAt: string | null; problems: string[] } }
 }
 export type Channel = keyof IpcContract
-const CHANNEL_LIST = ["report:run", "ledger:get", "app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "products:list", "docs:list", "movements:list", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "product:colors", "colours:list", "colour:save", "colour:delete", "product:image", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "health:get"] as Channel[]
+const CHANNEL_LIST = ["report:run", "ledger:get", "app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "products:list", "docs:list", "movements:list", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "product:colors", "colours:list", "colour:save", "colour:delete", "product:image", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "backup:clearFolder", "backup:testFolder", "backup:status", "backup:check", "restore:scan", "restore:chooseFolder", "restore:start", "health:get"] as Channel[]
 export const CHANNELS: Channel[] = CHANNEL_LIST
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }

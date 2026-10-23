@@ -803,3 +803,9 @@ td strong { color: #46526a; font-weight: 550; }
 .colour-edit { gap: 8px; flex-wrap: wrap; }
 .colour-add { display: flex; flex-wrap: nowrap; gap: 10px; margin-bottom: 10px; }
 .colour-add > input { flex: 1; min-width: 0; }
+.backup-warning .btn { margin-top: 10px; }
+.backup-location .row-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.restore-list { display: grid; gap: 8px; margin: 14px 0; max-height: 280px; overflow: auto; }
+.restore-item { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.restore-item.bad { opacity: 0.6; cursor: not-allowed; }
+.restore-item input { margin-top: 4px; }

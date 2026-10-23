@@ -2,7 +2,7 @@ import { useConfig, profiles, featureMeta } from "./config"
 import { BrandMark, useBusiness, type Business } from "./business"
 import { applyTextSize, readTextSize, type TextSize } from "./display"
 import { api } from "./backend"
-import type { BackupInfo } from "@shared/ipc"
+import type { BackupInfo, BackupStatus, BackupSummary } from "@shared/ipc"
 import type { Masters, ReportResult, ReturnRow } from "@shared/models"
 import { useEffect, useRef, useState } from "react"
 import { useDebounced, useRemote } from "./remote"
@@ -873,10 +873,14 @@ export function Backup({
   const [health, setHealth] = useState<{ integrityOk: boolean; lastBackupAt: string | null; problems: string[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const [restoring, setRestoring] = useState<string | null>(null)
+  const [status, setStatus] = useState<BackupStatus | null>(null)
+  const [check, setCheck] = useState<{ current: BackupSummary; backups: BackupSummary[] } | null>(null)
+  const [checking, setChecking] = useState(false)
   const load = async () => {
     try {
       setList(await api("backup:list"))
       setHealth(await api("health:get"))
+      setStatus(await api("backup:status"))
     } catch (e) {
       notify((e as Error).message)
     }
@@ -902,23 +906,79 @@ export function Backup({
       <div className="summary-grid three">
         <Summary label="Last backup" value={when(health?.lastBackupAt ?? null)} />
         <Summary label="Backups kept" value={`${list.length}`} />
-        <Summary label="Second copy" value={secondaryDir || "Not set"} />
+        <Summary label="Last outside copy" value={status?.targets.length ? when(status.lastExternalOkAt) : "Not set up"} />
       </div>
       <div className="backup-grid">
-        <Panel title="Create a backup" subtitle="A complete copy of all your records">
+        <Panel title="Extra copies" subtitle="USB drive, second disk or Google Drive folder">
           <div className="backup-content">
-            <div className="backup-big-icon">
-              <Database size={31} />
-            </div>
-            <Heading level={3}>Back up now</Heading>
-            <p>Saved on this computer and checked for damage. If a second-copy folder is set, it is copied there as well.</p>
-            <div className="backup-location">
-              <FolderOpen size={19} />
-              <div>
-                <strong>{secondaryDir || "No second-copy folder chosen"}</strong>
-                <span>Choose a USB drive or another disk for the extra copy</span>
-              </div>
-            </div>
+            {([1, 2] as const).map((slot) => {
+              const t = status?.targets.find((x) => x.slot === slot)
+              return (
+                <div className="backup-location" key={slot} data-slot={slot}>
+                  <FolderOpen size={19} />
+                  <div>
+                    <strong>
+                      Copy {slot}: {t?.dir || "Not chosen"}
+                    </strong>
+                    {t ? (
+                      <span>
+                        {t.available ? "Connected" : "Not connected right now"} · last copy {when(t.lastOkAt)} · {t.files} file{t.files === 1 ? "" : "s"}
+                        {t.error ? ` · ${t.error}` : ""}
+                      </span>
+                    ) : (
+                      <span>{slot === 1 ? "Choose a USB drive or another disk" : "Optional: a Google Drive folder or a second drive"}</span>
+                    )}
+                    <div className="row-actions">
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const r = await api("backup:chooseFolder", { slot })
+                            if (r.error) notify(r.error)
+                            else if (r.folder) notify(`Copy ${slot} folder saved.`)
+                            await load()
+                            onChanged()
+                          } catch (e) {
+                            notify((e as Error).message)
+                          }
+                        }}
+                      >
+                        {t ? "Change" : "Choose folder"}
+                      </Button>
+                      {t && (
+                        <>
+                          <Button
+                            onClick={async () => {
+                              try {
+                                const r = await api("backup:testFolder", { slot })
+                                notify(r.ok ? `Copy ${slot}: ${r.message}` : `Copy ${slot}: ${r.message}`)
+                              } catch (e) {
+                                notify((e as Error).message)
+                              }
+                            }}
+                          >
+                            Test
+                          </Button>
+                          <Button
+                            onClick={async () => {
+                              try {
+                                await api("backup:clearFolder", { slot })
+                                await load()
+                                onChanged()
+                              } catch (e) {
+                                notify((e as Error).message)
+                              }
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            <p>Every backup is also copied to these folders and checked. Old copies are thinned automatically: the last 14 days, 8 weeks and 12 months are kept.</p>
             <div className="logo-actions">
               <Button
                 variant="primary"
@@ -939,22 +999,6 @@ export function Backup({
                 <Download size={16} />
                 Backup now
               </Button>
-              <Button
-                onClick={async () => {
-                  try {
-                    const r = await api("backup:chooseFolder")
-                    if (r.folder) {
-                      notify("Second-copy folder saved.")
-                      onChanged()
-                    }
-                  } catch (e) {
-                    notify((e as Error).message)
-                  }
-                }}
-              >
-                <FolderOpen size={16} />
-                Choose second-copy folder
-              </Button>
             </div>
           </div>
         </Panel>
@@ -972,6 +1016,43 @@ export function Backup({
           </div>
         </Panel>
       </div>
+      <Panel title="Check that your backup really works" subtitle="Opens the newest backups and compares them with your records now">
+        <div className="backup-content">
+          <p>Do this once a month. It does not change anything: it only reads the backups and shows what is inside.</p>
+          <Button
+            disabled={checking}
+            onClick={async () => {
+              setChecking(true)
+              try {
+                setCheck(await api("backup:check"))
+                await load()
+              } catch (e) {
+                notify((e as Error).message)
+              } finally {
+                setChecking(false)
+              }
+            }}
+          >
+            {checking ? "Checking…" : "Check my backups now"}
+          </Button>
+          {check && (
+            <DataTable
+              rows={[check.current, ...check.backups]}
+              empty="No backups to check yet."
+              columns={[
+                { key: "where", label: "Copy", render: (r) => (<div className="cell-two"><strong>{r.name}</strong><span>{r.where}{r.name.startsWith("backup-") ? ` · ${when(r.createdAt)}` : ""}</span></div>) },
+                { key: "ok", label: "Result", render: (r) => <Badge tone={r.ok ? "green" : "red"}>{r.ok ? "Opens correctly" : "Damaged"}</Badge> },
+                { key: "sales", label: "Sales", right: true },
+                { key: "purchases", label: "Purchases", right: true },
+                { key: "customers", label: "Customers", right: true },
+                { key: "products", label: "Products", right: true },
+                { key: "receivable", label: "Customers owe", right: true, render: (r) => money(r.receivable) },
+              ]}
+            />
+          )}
+          {check && <p>A backup made earlier today may show slightly fewer sales than "Your records now". That is normal. Damaged backups are shown in red.</p>}
+        </div>
+      </Panel>
       <Panel title="Available backups">
         <DataTable
           rows={list}

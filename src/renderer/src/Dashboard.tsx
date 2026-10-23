@@ -2,7 +2,9 @@ import { L, today } from "./data"
 import type { DashboardData } from "@shared/models"
 import { useConfig } from "./config"
 import { useSession } from "./Auth"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { api } from "./backend"
+import { backupWarnings, type BackupWarning } from "@shared/backupWarn"
 import { Check } from "lucide-react"
 import {
   ArrowDownLeft,
@@ -150,6 +152,17 @@ export default function Dashboard({
   const [period, setPeriod] = useState("This week")
   const [activity, setActivity] = useState("Recent sales")
   const [hover, setHover] = useState<number | null>(null)
+  const [warnings, setWarnings] = useState<BackupWarning[]>([])
+  useEffect(() => {
+    if (!session.can("settings.manage")) return
+    let alive = true
+    void api("backup:status")
+      .then((st) => alive && setWarnings(backupWarnings(st)))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [session])
   const d = dashboard
   const series = period === "This week" ? d.week : d.month
   const prev = period === "This week" ? d.weekPrev : d.monthPrev
@@ -198,6 +211,13 @@ export default function Dashboard({
           }))
   return (
     <>
+      {warnings.map((w) => (
+        <div className="confirm-notice backup-warning" role="alert" key={w.text}>
+          <strong>{w.level === "warn" ? "Backup warning" : "Backup reminder"}</strong>
+          <p>{w.text}</p>
+          <Button onClick={() => navigate("Backup & Restore")}>Open Backup & restore</Button>
+        </div>
+      ))}
       <div className="page-heading dashboard-heading">
         <div>
           <div className="eyebrow">YOUR BUSINESS AT A GLANCE</div>

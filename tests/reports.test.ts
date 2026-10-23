@@ -21,7 +21,7 @@ async function world() {
   ensureWalkInParty(db)
   seedDefaults(db)
   const session = new Session()
-  const c = createCommands({ db: () => db, session, backups: () => { throw new Error("n/a") }, restore: async () => {}, chooseFolder: async () => null } as Ctx)
+  const c = createCommands({ db: () => db, session, backups: () => { throw new Error("n/a") }, restore: async () => {}, chooseFolder: async () => null, backupsDir: "", restoreInfo: () => ({ maxSchema: 99 }), restoreExternal: async () => {} } as Ctx)
   c["auth:setup"]({ name: "Faraz", username: "faraz", password: "secret1" })
   const sup = (await c["party:save"]({ kind: "supplier", name: "ABC Textile", city: "Karachi" })).id
   const a = (await c["party:save"]({ kind: "customer", name: "Ali Traders", city: "Ghotki" })).id

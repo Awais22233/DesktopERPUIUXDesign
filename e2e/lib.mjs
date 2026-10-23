@@ -25,7 +25,7 @@ export async function launch(profile, client, opts = {}) {
   const app = await electron.launch({
     executablePath: require("electron"),
     args: [root, "--no-sandbox", "--disable-gpu"],
-    env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_FORCE_CSP: "1" },
+    env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_FORCE_CSP: "1", ERP_NO_DIALOGS: "1" },
   })
   const page = await app.firstWindow()
   page.setDefaultTimeout(8000)
@@ -66,5 +66,5 @@ export async function launch(profile, client, opts = {}) {
     }
     console.log("\nAll steps passed with no page errors")
   }
-  return { app, page, step, root, issueKey, machineId: status.data.machineId, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem }, work }
+  return { app, page, step, root, issueKey, machineId: status.data.machineId, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_NO_DIALOGS: "1" }, work }
 }

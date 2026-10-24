@@ -101,3 +101,27 @@ describe("buying and selling by the meter", () => {
     expect(stockReconcile(c.db)).toEqual([])
   })
 })
+
+describe("a product with several lengths in one go", () => {
+  it("creates one product, a variant per length with its thans, and refuses a repeated length", async () => {
+    const { saveProduct } = await import("../src/main/services/catalog")
+    const id = saveProduct(c.db, c.owner, { company: "Gul Ahmed", article: "Cotton", color: "Grey", purchasePrice: 10_000, salePrice: 0, lengths: [{ length: 28, qty: 5 }, { length: 22, qty: 4 }, { length: 44.5, qty: 2 }] })
+    const rows = listProducts(c.db, { query: "Cotton" }).rows
+    expect(rows.map((p) => [p.length, p.stock]).sort((a, b) => a[0]! - b[0]!)).toEqual([[22, 4], [28, 5], [44.5, 2]])
+    expect(rows.some((p) => p.id.endsWith(String(id).padStart(4, "0")))).toBe(true)
+    expect(stockReconcile(c.db)).toEqual([])
+    expect(codeOf(() => saveProduct(c.db, c.owner, { company: "Gul Ahmed", article: "Cotton", color: "Red", purchasePrice: 0, salePrice: 0, lengths: [{ length: 28 }, { length: 28.0 }] }))).toContain("twice")
+  })
+})
+
+describe("purchase bill number", () => {
+  it("can be changed, stays unique, and the automatic number skips a typed one", async () => {
+    const { renumberPurchase } = await import("../src/main/services/purchases")
+    const a = buy(c, 20, 1, 10_000)
+    expect(renumberPurchase(c.db, c.owner, a.purchaseId, "P-501")).toBe("P-501")
+    const b = buy(c, 20, 1, 10_000)
+    expect(codeOf(() => renumberPurchase(c.db, c.owner, b.purchaseId, "p-501"))).toContain("already used")
+    renumberPurchase(c.db, c.owner, b.purchaseId, "PUR-00003")
+    expect(buy(c, 20, 1, 10_000).purchaseNo).toBe("PUR-00004") // PUR-00003 is taken by b
+  })
+})

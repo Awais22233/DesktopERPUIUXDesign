@@ -872,3 +872,8 @@ td strong { color: #46526a; font-weight: 550; }
   font-size: 11.5px;
   opacity: 0.8;
 }
+
+.length-rows { display: flex; flex-direction: column; gap: 8px; grid-column: 1 / -1; }
+.length-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+.selected-length { font-weight: 700; text-decoration: underline; }
+.lengths-note { padding: 10px 24px; margin: 0; }

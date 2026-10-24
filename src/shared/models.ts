@@ -25,6 +25,8 @@ export type Product = {
   color: string
   design?: string
   size: string
+  /** inventory screen only: every length of this product, when it is shown as one line */
+  lengths?: Product[]
   /** cloth: length of one than in meters (null = not sold by the meter). Prices are then per meter. */
   length: number | null
   unit: string

@@ -10,7 +10,7 @@ import { addAccount, addMaster, saveParty, saveProduct, saveProductColors, setAc
 import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
 import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment } from "./services/payments"
-import { postPurchase, voidPurchase } from "./services/purchases"
+import { postPurchase, renumberPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale, suggestInvoiceNo, renumberSale } from "./services/sales"
 import { perThan, toTenths, variantForLength } from "./services/meters"
@@ -189,6 +189,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       const row = db().prepare("SELECT l.rate FROM sale_lines l JOIN sales s ON s.id = l.sale_id WHERE s.party_id = ? AND l.variant_id = ? AND s.status = 'completed' ORDER BY s.id DESC LIMIT 1").get(idNumber(p.partyId), idNumber(p.productId)) as { rate: number } | undefined
       return { rate: row ? row.rate / 100 : null }
     },
+    "purchase:renumber": (p) => ({ purchaseNo: renumberPurchase(db(), actor(), docId(db(), "purchases", p.id), p.purchaseNo) }),
     "sale:suggestNo": () => ({ invoiceNo: suggestInvoiceNo(db()) }),
     "sale:renumber": (p) => ({ invoiceNo: renumberSale(db(), actor(), docId(db(), "sales", p.id), p.invoiceNo) }),
     "sale:void": (p) => (voidSale(db(), actor(), docId(db(), "sales", p.id), p.reason), null),
@@ -245,7 +246,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     },
     "product:save": (p) => {
       const id = saveProduct(db(), actor(), {
-        id: p.id ? idNumber(p.id) : undefined, company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, color: p.color, design: p.design, size: p.size, length: p.length, unit: p.unit, barcode: p.barcode, sku: p.sku,
+        id: p.id ? idNumber(p.id) : undefined, company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, color: p.color, design: p.design, size: p.size, length: p.length, lengths: p.lengths, unit: p.unit, barcode: p.barcode, sku: p.sku,
         purchasePrice: paisa(p.cost), salePrice: paisa(p.rate), wholesalePrice: p.wholesale == null ? null : paisa(p.wholesale), minStock: p.minStock, active: p.active, openingQty: p.openingQty, openingCost: paisa(p.cost),
       })
       return { id: fmtId("VAR", id) }

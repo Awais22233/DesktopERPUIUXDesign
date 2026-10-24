@@ -4,7 +4,7 @@ import { requirePermission, type Actor } from "@core/permissions"
 import { audit, tx } from "../db/util"
 import { ensureColour } from "./colours"
 import { postMovement } from "./stock"
-import { lengthLabel, perThan, toTenths } from "./meters"
+import { lengthLabel, perThan, toTenths, variantForLength } from "./meters"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 
 const clean = (v: string | undefined | null) => (v === undefined || v === null || v.trim() === "" ? null : v.trim())
@@ -114,6 +114,8 @@ export interface ProductForm {
   wholesalePrice?: number | null
   minStock?: number
   active?: boolean
+  /** cloth, create only: several lengths with the thans of each held now (replaces length and openingQty) */
+  lengths?: { length: number; qty?: number }[]
   /** create only: opening stock */
   openingQty?: number
   openingCost?: number
@@ -129,7 +131,13 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
   if (f.wholesalePrice != null && (!Number.isSafeInteger(f.wholesalePrice) || f.wholesalePrice < 0)) throw new AppError("VALIDATION", "Wholesale price must be zero or more")
   if (f.minStock !== undefined && (!Number.isInteger(f.minStock) || f.minStock < 0)) throw new AppError("VALIDATION", "Minimum stock must be a whole number")
 
-  const tenths = f.length === undefined || f.length === null ? null : toTenths(f.length)
+  const lens = (f.lengths ?? []).map((l) => {
+    if (l.qty !== undefined && (!Number.isInteger(l.qty) || l.qty < 0 || l.qty > 1_000_000)) throw new AppError("VALIDATION", "Thans must be a whole number")
+    return { tenths: toTenths(l.length), qty: l.qty ?? 0 }
+  })
+  if (new Set(lens.map((l) => l.tenths)).size !== lens.length) throw new AppError("VALIDATION", "A length is listed twice")
+  if (lens.length && f.id) throw new AppError("VALIDATION", "Lengths are added by a purchase after the product exists")
+  const tenths = lens.length ? lens[0].tenths : f.length === undefined || f.length === null ? null : toTenths(f.length)
   const sizeText = tenths === null ? clean(f.size) : lengthLabel(tenths)
   return tx(db, () => {
     let companyId = (db.prepare("SELECT id FROM companies WHERE name = ?").get(company) as { id: number } | undefined)?.id
@@ -169,7 +177,15 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
     } else {
       id = dup(() => Number(db.prepare("INSERT INTO variants(item_id, sku, barcode, color, design, size_label, unit, purchase_price, sale_price, wholesale_price, min_stock, length_tenths) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(itemId, ...vals, tenths).lastInsertRowid), "That SKU or barcode is already used by another product")
       audit(db, actor.userId, "product.create", "variant", id, { article, color: f.color })
-      if (f.openingQty && f.openingQty > 0) {
+      if (lens.length) {
+        for (const l of lens) {
+          if (l.qty <= 0) continue
+          const variant = variantForLength(db, id, l.tenths)
+          postMovement(db, { variantId: variant, qtyDelta: l.qty, unitCost: perThan(f.openingCost ?? f.purchasePrice, l.tenths), type: "opening", sourceType: "opening", userId: actor.userId, ts: new Date().toISOString() })
+        }
+        // lengths without stock are still created, so they can be chosen later
+        for (const l of lens) variantForLength(db, id, l.tenths)
+      } else if (f.openingQty && f.openingQty > 0) {
         postMovement(db, { variantId: id, qtyDelta: f.openingQty, unitCost: tenths === null ? (f.openingCost ?? f.purchasePrice) : perThan(f.openingCost ?? f.purchasePrice, tenths), type: "opening", sourceType: "opening", userId: actor.userId, ts: new Date().toISOString() })
       }
     }

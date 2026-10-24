@@ -385,7 +385,15 @@ export default function App() {
       }
       return
     }
-    if (type === "product" && "length" in data && !data.length && Number(data.openingQty) > 0) return notify("Enter the than length (meters) to record opening stock.")
+    // cloth: rows of "length + thans"; rows left empty are ignored
+    let lengths: { length: number; qty?: number }[] | undefined
+    if (type === "product" && data.lengths && !initial?.id) {
+      const rows = (JSON.parse(data.lengths) as { length: string; qty: string }[]).filter((r) => r.length.trim() !== "" || r.qty.trim() !== "")
+      if (rows.some((r) => !(Number(r.length) > 0))) return notify("Enter the length (meters) for every row, or remove the row.")
+      lengths = rows.map((r) => ({ length: Number(r.length), qty: r.qty.trim() === "" ? 0 : Number(r.qty) }))
+      if (!lengths.length) lengths = undefined
+    }
+    if (type === "product" && data.multi && "length" in data && !data.length && (JSON.parse(data.colours ?? "[]") as { openingQty?: number }[]).some((c) => Number(c.openingQty) > 0)) return notify("Enter the than length (meters) to record opening stock.")
     if (type === "product" && data.multi) {
       const list = JSON.parse(data.colours ?? "[]") as { color: string; openingQty?: number }[]
       const res = await run(() => api("product:colors", { company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, design: data.design, size: data.size, length: data.length ? n("length") : undefined, unit: data.unit, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, colors: list }))
@@ -399,7 +407,7 @@ export default function App() {
     if (type === "product") {
       let photoProblem = ""
       const res = await run(async () => {
-        const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, length: data.length ? n("length") : undefined, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
+        const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, length: data.length ? n("length") : undefined, lengths, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
         // The product is already saved at this point. A photo problem must never make the form look unsaved:
         // pressing Save again would create the product (and its opening stock) a second time.
         try {
@@ -760,7 +768,15 @@ export default function App() {
     const sum = inventory.data?.summary ?? { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }
     // one product, one line per length: the second and later lengths of a product are shown as part of it
     const sameProduct = (a: Product, b: Product) => a.length != null && b.length != null && a.company === b.company && a.article === b.article && a.color === b.color && (a.design ?? "") === (b.design ?? "")
-    const more = new Set(rows.filter((p, i) => i > 0 && sameProduct(rows[i - 1], p)).map((p) => p.id))
+    const grouped: Product[][] = []
+    for (const p of rows) {
+      const last = grouped[grouped.length - 1]
+      if (last && sameProduct(last[0], p)) last.push(p)
+      else grouped.push([p])
+    }
+    const lines: Product[] = grouped.map((g) =>
+      g[0].length == null ? g[0] : { ...g[0], size: g.map((x) => `${fmtM(x.length!)} m × ${x.stock}`).join(" · "), stock: g.reduce((s, x) => s + x.stock, 0), minStock: g.reduce((s, x) => s + x.minStock, 0), lengths: g.sort((a, b) => a.length! - b.length!) },
+    )
     return (
       <>
         <PageHeading
@@ -831,7 +847,7 @@ export default function App() {
             </Select>
           </div>
           <DataTable
-            rows={rows}
+            rows={lines}
             server={{ total: inventory.data?.total ?? 0, page: pageNo, pageSize: 25, onPage: setPageNo, loading: inventory.loading }}
             {...(!query && filter === "All statuses"
               ? {
@@ -850,24 +866,21 @@ export default function App() {
               {
                 key: "name",
                 label: "Product / article",
-                render: (p) =>
-                  more.has(p.id) ? (
-                    <span className="muted same-product">↳ same product, another length</span>
-                  ) : (
-                    <div className="cell-photo">
-                      <ProductPhoto product={p} className="row-photo" />
-                      <div className="cell-two">
-                        <strong>{p.name}</strong>
-                        <span>
-                          {p.article} · {p.category}
-                        </span>
-                      </div>
+                render: (p) => (
+                  <div className="cell-photo">
+                    <ProductPhoto product={p} className="row-photo" />
+                    <div className="cell-two">
+                      <strong>{p.name}</strong>
+                      <span>
+                        {p.article} · {p.category}
+                      </span>
                     </div>
-                  ),
+                  </div>
+                ),
               },
-              { key: "company", label: "Company", render: (p) => (more.has(p.id) ? "" : p.company) },
-              { key: "color", label: "Variant", render: (p) => (more.has(p.id) ? "" : p.color ? <span className="colour-cell"><ColourDot name={p.color} />{p.color}</span> : "—") },
-              { key: "size", label: L.size, render: (p) => (p.length != null ? `${fmtM(p.length)} m` : p.size || "—") },
+              { key: "company", label: "Company" },
+              { key: "color", label: "Variant", render: (p) => (p.color ? <span className="colour-cell"><ColourDot name={p.color} />{p.color}</span> : "—") },
+              { key: "size", label: L.size, render: (p) => p.size || "—" },
               {
                 key: "stock",
                 label: "Qty",
@@ -875,7 +888,7 @@ export default function App() {
                 render: (p) => (
                   <>
                     <strong className={p.stock === 0 ? "red-text" : p.stock <= p.minStock ? "amber-text" : ""}>{p.stock}</strong>
-                    {p.length != null && p.stock > 0 && <small className="muted"> = {fmtM(Math.round(p.stock * p.length * 10) / 10)} m</small>}
+                    {p.lengths && p.stock > 0 && <small className="muted"> = {fmtM(Math.round(p.lengths.reduce((t, x) => t + x.stock * x.length!, 0) * 10) / 10)} m</small>}
                   </>
                 ),
               },
@@ -1582,9 +1595,9 @@ export default function App() {
             purchase={(data as Transaction | undefined)?.kind === "purchase"}
             canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
             onRenumber={
-              type === "invoice" && (data as Transaction)?.kind === "sale" && session.can("sale.void")
+              type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")
                 ? async (invoiceNo) => {
-                    const res = await run(() => api("sale:renumber", { id: (data as Transaction).id, invoiceNo }))
+                    const res = await run(async () => ((data as Transaction).kind === "purchase" ? (await api("purchase:renumber", { id: (data as Transaction).id, purchaseNo: invoiceNo })).purchaseNo : (await api("sale:renumber", { id: (data as Transaction).id, invoiceNo })).invoiceNo))
                     if (res) {
                       // the bill stays open on screen; only its number changes
                       setModal((m) => (m ? { ...m, data: { ...(m.data as Transaction), id: invoiceNo } } : m))
@@ -1638,8 +1651,8 @@ export default function App() {
         <Modal title="Stock details & movement" wide onClose={closeModal}>
           <StockDetails
             product={p}
-            onAdjust={() => open("adjust", p)}
-            onEdit={session.can("catalog.manage") ? () => open("product", p) : undefined}
+            onAdjust={(v) => open("adjust", v ?? p)}
+            onEdit={session.can("catalog.manage") ? () => open("product", p.lengths ? p.lengths[0] : p) : undefined}
           />
         </Modal>
       )

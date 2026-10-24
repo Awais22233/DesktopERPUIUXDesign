@@ -806,6 +806,7 @@ export function EntryForm({
   const [confirm, setConfirm] = useState(false)
   const [photo, setPhoto] = useState<PhotoChoice>({ kind: "keep" })
   const [multi, setMulti] = useState(false)
+  const [lengthRows, setLengthRows] = useState<{ length: string; qty: string }[]>([{ length: "", qty: "" }])
   const [colours, setColours] = useState<{ name: string; qty: string }[]>([{ name: "", qty: "" }, { name: "", qty: "" }])
   const party = parties.find((p) => p.id === selected)
   const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
@@ -1097,7 +1098,28 @@ export function EntryForm({
                   <ColourPicker name="color" value={colour} onChange={setColour} label={isEnabled("than") ? "Colour" : "Variant (colour / type)"} />
                 </Field>
               )}
-              {byMeter ? (
+              {byMeter && !editing && !multi ? (
+                <div className="length-rows">
+                  <span className="field-label">Than lengths and thans in stock</span>
+                  <input type="hidden" name="lengths" value={JSON.stringify(lengthRows)} />
+                  {lengthRows.map((row, i) => (
+                    <div className="length-row" key={i}>
+                      <Input aria-label={`Length ${i + 1} (meters)`} type="number" min="0.1" step="0.1" placeholder="Length (m), e.g. 28" value={row.length} onChange={(e) => setLengthRows((rs) => rs.map((r, j) => (j === i ? { ...r, length: e.target.value } : r)))} />
+                      <Input aria-label={`Thans of length ${i + 1}`} type="number" min="0" step="1" placeholder="Thans in stock" value={row.qty} onChange={(e) => setLengthRows((rs) => rs.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))} />
+                      {lengthRows.length > 1 && (
+                        <Action className="row-action delete-action" aria-label={`Remove length ${i + 1}`} onClick={() => setLengthRows((rs) => rs.filter((_, j) => j !== i))}>
+                          <Trash2 size={15} />
+                        </Action>
+                      )}
+                    </div>
+                  ))}
+                  <Button type="button" onClick={() => setLengthRows((rs) => [...rs, { length: "", qty: "" }])}>
+                    <Plus size={14} />
+                    Add another length
+                  </Button>
+                  <small className="muted">Optional. One decimal is allowed (44.5). More lengths can also be added later when you buy.</small>
+                </div>
+              ) : byMeter ? (
                 <Field label="Than length (meters)" hint={editing ? "To add another length, buy it in a purchase." : "Optional. One decimal, e.g. 44.5. You can add more lengths when you buy."}>
                   <Input name="length" type="number" min="0.1" step="0.1" placeholder="e.g. 40" defaultValue={prod?.length ?? ""} readOnly={editing && prod?.length != null} />
                 </Field>
@@ -1125,7 +1147,7 @@ export function EntryForm({
               </Field>
             </div>
             <div className="form-grid">
-              {!editing && !multi && (
+              {!editing && !multi && !byMeter && (
                 <Field label={`Opening stock (${L.units})`} hint="Stock you already have before using the program. Valued at the purchase price.">
                   <Input name="openingQty" type="number" min="0" step="1" placeholder="0" />
                 </Field>
@@ -1505,7 +1527,7 @@ export function InvoicePreview({
             Cancel invoice
           </Button>
         )}
-        {onRenumber && transaction && !purchase && !voiding && !renumbering && (
+        {onRenumber && transaction && !voiding && !renumbering && (
           <Button variant="ghost" onClick={() => (setNewNo(transaction.id), setRenumbering(true))}>
             Change bill number
           </Button>
@@ -1860,15 +1882,23 @@ export function StockDetails({
   onEdit,
 }: {
   product: Product
-  onAdjust: () => void
+  /** a length of the product can be given: the stock of that length is adjusted */
+  onAdjust: (variant?: Product) => void
   onEdit?: () => void
 }) {
   // Always show the live figures (they change after an adjustment) and the movement history one page at a time.
   const { isEnabled } = useConfig()
-  const { data: fresh } = useRemote("products:list", { ids: [shown.id], pageSize: 1 })
-  const product = fresh?.rows[0] ?? shown
+  // a cloth product is one line with a length per variant; the stock and history shown are for the chosen length
+  const family = shown.lengths ?? []
+  const [chosen, setChosen] = useState(family[0]?.id ?? shown.id)
+  const { data: famFresh } = useRemote("products:list", { ids: family.length ? family.map((f) => f.id) : [shown.id], pageSize: 50 })
+  const live = famFresh?.rows ?? []
+  const lengths = family.length ? live.slice().sort((a, b) => (a.length ?? 0) - (b.length ?? 0)) : []
+  const product = (family.length ? live.find((x) => x.id === chosen) : live[0]) ?? (family.find((x) => x.id === chosen) ?? shown)
+  const totalThans = lengths.length ? lengths.reduce((s, x) => s + x.stock, 0) : product.stock
+  const totalMeters = Math.round(lengths.reduce((s, x) => s + x.stock * (x.length ?? 0), 0) * 10) / 10
   const [movePage, setMovePage] = useState(1)
-  const { data: moves, loading: movesLoading } = useRemote("movements:list", { productId: shown.id, page: movePage, pageSize: 10 })
+  const { data: moves, loading: movesLoading } = useRemote("movements:list", { productId: product.id, page: movePage, pageSize: 10 })
   const rows = moves?.rows ?? []
   return (
     <>
@@ -1884,10 +1914,37 @@ export function StockDetails({
           </span>
         </div>
         <div className="stock-detail-number">
-          <strong>{product.stock}</strong>
+          <strong>{totalThans}</strong>
           <span>{L.units} available</span>
         </div>
       </div>
+      {lengths.length > 0 && (
+        <DataTable
+          rows={lengths}
+          onRow={(x) => (setChosen(x.id), setMovePage(1))}
+          empty=""
+          columns={[
+            { key: "length", label: "Than length", render: (x) => <strong>{x.length != null ? `${fmtM(x.length)} m` : x.size}</strong> },
+            { key: "stock", label: "Thans", right: true, render: (x) => <span className={x.id === chosen ? "selected-length" : ""}>{x.stock}</span> },
+            { key: "meters", label: "Meters", right: true, render: (x) => `${fmtM(Math.round(x.stock * (x.length ?? 0) * 10) / 10)} m` },
+            {
+              key: "act",
+              label: "",
+              right: true,
+              render: (x) => (
+                <Button type="button" onClick={() => onAdjust(x)}>
+                  Adjust
+                </Button>
+              ),
+            },
+          ]}
+        />
+      )}
+      {lengths.length > 0 && (
+        <p className="muted lengths-note">
+          Total {totalThans} {L.units} = {fmtM(totalMeters)} m. Showing the history of {fmtM(product.length ?? 0)} m (click a length to change).
+        </p>
+      )}
       <div className="stock-price-row">
         {isEnabled("profit") && (
           <div>
@@ -1917,7 +1974,7 @@ export function StockDetails({
             Edit product
           </Button>
         )}
-        <Button onClick={onAdjust}>
+        <Button onClick={() => onAdjust(product)}>
           <Package size={15} />
           Adjust stock
         </Button>

@@ -3,6 +3,7 @@ import { AppError } from "@core/errors"
 import { lineAmount } from "@core/money"
 import { requirePermission, type Actor } from "@core/permissions"
 import { audit, nextDocNo, tx } from "../db/util"
+import { cleanInvoiceNo } from "./sales"
 import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 import { resolveTimestamp } from "./policy"
@@ -34,6 +35,28 @@ export interface PurchaseResult {
   total: number
   paid: number
   payable: number
+}
+
+export function purchaseNoTaken(db: DB, no: string, exceptId = 0): boolean {
+  return db.prepare("SELECT 1 FROM purchases WHERE purchase_no = ? COLLATE NOCASE AND id != ?").get(no, exceptId) !== undefined
+}
+
+export function renumberPurchase(db: DB, actor: Actor, purchaseId: number, raw: string): string {
+  requirePermission(actor, "purchase.void")
+  const no = cleanInvoiceNo(raw)
+  if (!no) throw new AppError("VALIDATION", "Type the bill number")
+  return tx(db, () => {
+    const p = db.prepare("SELECT purchase_no FROM purchases WHERE id = ?").get(purchaseId) as { purchase_no: string } | undefined
+    if (!p) throw new AppError("NOT_FOUND", "Purchase not found")
+    if (p.purchase_no === no) return no
+    if (purchaseNoTaken(db, no, purchaseId)) throw new AppError("VALIDATION", `Bill number ${no} is already used`)
+    db.prepare("UPDATE purchases SET purchase_no = ? WHERE id = ?").run(no, purchaseId)
+    for (const table of ["ledger_entries", "account_entries"]) {
+      db.prepare(`UPDATE ${table} SET description = REPLACE(description, ?, ?) WHERE source_type = 'purchase' AND source_id = ?`).run(p.purchase_no, no, purchaseId)
+    }
+    audit(db, actor.userId, "purchase.renumber", "purchase", purchaseId, { from: p.purchase_no, to: no })
+    return no
+  })
 }
 
 export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): PurchaseResult {
@@ -76,7 +99,9 @@ export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): Purcha
     const paid = payments.reduce((s, p) => s + p.amount, 0)
     if (paid > total) throw new AppError("VALIDATION", "Payment cannot exceed the purchase total")
 
-    const purchaseNo = nextDocNo(db, "purchase")
+    let purchaseNo = nextDocNo(db, "purchase")
+    // a number the owner typed over a bill earlier must never be handed out again
+    while (purchaseNoTaken(db, purchaseNo)) purchaseNo = nextDocNo(db, "purchase")
     const purchaseId = Number(
       db
         .prepare(

@@ -29,7 +29,7 @@ await step("first day: getting-started guide and helpful empty screens", async (
   await nav("POS / Sales")
   await page.waitForSelector("text=No products yet")
   await page.getByRole("button", { name: "Add your first product" }).click()
-  await page.waitForSelector("text=Opening stock")
+  await page.waitForSelector("text=Than lengths and thans in stock")
   const folded = await page.locator("details.more-details").evaluate((e) => e.open)
   if (folded) throw new Error("the optional product fields should be folded by default")
   await shot("add-product-short")
@@ -78,7 +78,7 @@ await step("add products with a free-text than size", async () => {
     await page.locator("input[name=company]").fill("Faraz Company")
     await page.locator("input[name=article]").fill("Article A")
     await page.locator("input[name=color]").fill(color)
-    await page.locator("input[name=length]").fill("1")
+    await page.getByLabel("Length 1 (meters)").fill("1")
     await page.locator("input[name=cost]").fill("1000")
     await page.locator("input[name=rate]").fill("1500")
     await page.locator("details.more-details summary").click() // the optional fields are folded away by default
@@ -222,10 +222,10 @@ await step("one article in several colours is added in one go; an existing colou
     await page.getByRole("button", { name: "Add product" }).first().click()
     await page.locator("input[name=company]").fill("Gul Ahmed")
     await page.locator("input[name=article]").fill("Lawn 55")
+    await page.getByRole("button", { name: /Add several colours/ }).click()
     await page.locator("input[name=length]").fill("1")
     await page.locator("input[name=cost]").fill("900")
     await page.locator("input[name=rate]").fill("1300")
-    await page.getByRole("button", { name: /Add several colours/ }).click()
   }
   await open()
   // pasting a list makes one row per colour

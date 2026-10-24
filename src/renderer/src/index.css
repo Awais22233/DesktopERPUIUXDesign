@@ -827,3 +827,48 @@ td strong { color: #46526a; font-weight: 550; }
 .restore-item { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.6; cursor: pointer; }
 .restore-item.bad { opacity: 0.6; cursor: not-allowed; }
 .restore-item input { margin-top: 4px; }
+
+/* Cloth sold by the meter: one product, a chip for every length it is held in */
+.length-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.length-chip {
+  border: 1px solid var(--border, #d6dae1);
+  background: var(--surface, #fff);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.length-chip:hover:not(:disabled) {
+  border-color: var(--accent, #2563eb);
+  color: var(--accent, #2563eb);
+}
+.length-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.length-chip.new-length {
+  border-style: dashed;
+  font-weight: 500;
+}
+.group-card,
+.group-option {
+  cursor: default;
+}
+.meter-line {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+}
+.invoice-meters {
+  display: block;
+  font-size: 11.5px;
+  opacity: 0.8;
+}

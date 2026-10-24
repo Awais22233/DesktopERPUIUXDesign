@@ -7,13 +7,17 @@ import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 import { resolveTimestamp } from "./policy"
 import type { PaymentInput } from "./sales"
+import { perThan, toTenths, variantForLength } from "./meters"
 
 export interface PurchaseLineInput {
   variantId: number
   qty: number
+  /** Price of one than. For a variant with a length (or when lengthMeters is given) it is the price of one METER. */
   rate: number
   discount?: number
   batchId?: number
+  /** Cloth: the length of the than in meters (one decimal). The product's variant with that length is used or created. */
+  lengthMeters?: number
 }
 export interface PurchaseInput {
   supplierId: number
@@ -45,10 +49,16 @@ export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): Purcha
     const lines = input.lines.map((l) => {
       if (!Number.isInteger(l.qty) || l.qty <= 0) throw new AppError("VALIDATION", "Quantity must be a whole number greater than zero")
       if (!Number.isSafeInteger(l.rate) || l.rate < 0) throw new AppError("VALIDATION", "Invalid rate")
-      const gross = lineAmount(l.rate, l.qty)
+      let variantId = l.variantId
+      if (l.lengthMeters !== undefined) variantId = variantForLength(db, variantId, toTenths(l.lengthMeters))
+      const len = (db.prepare("SELECT length_tenths FROM variants WHERE id = ?").get(variantId) as { length_tenths: number | null } | undefined)?.length_tenths ?? null
+      // with a length the rate typed is per meter; the amount is than x length x rate
+      const rateM = len === null ? null : l.rate
+      const rate = len === null ? l.rate : perThan(l.rate, len)
+      const gross = lineAmount(rate, l.qty)
       const discount = l.discount ?? 0
       if (!Number.isSafeInteger(discount) || discount < 0 || discount > gross) throw new AppError("VALIDATION", "Invalid line discount")
-      return { ...l, discount, gross, lineTotal: gross - discount }
+      return { ...l, variantId, rate, rateM, len, discount, gross, lineTotal: gross - discount }
     })
     const subtotal = lines.reduce((s, l) => s + l.gross, 0)
     const lineDiscounts = lines.reduce((s, l) => s + l.discount, 0)
@@ -87,10 +97,10 @@ export function postPurchase(db: DB, actor: Actor, input: PurchaseInput): Purcha
       cumShare = cum
       const value = Math.max(0, l.lineTotal - share)
       db.prepare(
-        `INSERT INTO purchase_lines(purchase_id, variant_id, qty, rate, discount, line_total, batch_id) VALUES (?,?,?,?,?,?,?)`,
-      ).run(purchaseId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, l.batchId ?? null)
+        `INSERT INTO purchase_lines(purchase_id, variant_id, qty, rate, discount, line_total, batch_id, length_tenths, rate_m) VALUES (?,?,?,?,?,?,?,?,?)`,
+      ).run(purchaseId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, l.batchId ?? null, l.len, l.rateM)
       // the next purchase of this product starts from the latest supplier price (the average cost is kept separately)
-      db.prepare("UPDATE variants SET purchase_price = ? WHERE id = ?").run(l.rate, l.variantId)
+      db.prepare("UPDATE variants SET purchase_price = ? WHERE id = ?").run(l.rateM ?? l.rate, l.variantId)
       postMovement(db, {
         variantId: l.variantId,
         qtyDelta: l.qty,

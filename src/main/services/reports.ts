@@ -97,16 +97,20 @@ function runReportRaw(db: DB, q: ReportRequest): ReportResult {
     case "Stock Valuation":
     case "Low Stock":
     case "Out of Stock": {
-      const rows = all(`SELECT i.name article, COALESCE(v.color,'') color, COALESCE(v.size_label,'') size, co.name company, COALESCE(sl.qty,0) qty, COALESCE(sl.avg_cost,0) cost, v.min_stock mn FROM variants v JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id LEFT JOIN stock_levels sl ON sl.variant_id=v.id WHERE v.active=1 AND co.name LIKE ? ORDER BY co.name, i.name, v.color`, like)
+      const rows = all(`SELECT i.name article, COALESCE(v.color,'') color, COALESCE(v.size_label,'') size, co.name company, COALESCE(sl.qty,0) qty, COALESCE(sl.avg_cost,0) cost, v.length_tenths lt, v.min_stock mn FROM variants v JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id LEFT JOIN stock_levels sl ON sl.variant_id=v.id WHERE v.active=1 AND co.name LIKE ? ORDER BY co.name, i.name, v.color`, like)
         .filter((x) => (q.name === "Low Stock" ? x.qty > 0 && x.qty <= x.mn : q.name === "Out of Stock" ? x.qty <= 0 : true))
       const value = rows.reduce((s, x) => s + Math.max(0, x.qty) * x.cost, 0)
-      const base = [text("company", "Company"), text("article", "Article"), text("color", "Variant"), text("size", "Size"), num("qty", "In stock")]
-      const units = { label: "Units in stock", value: rows.reduce((s, x) => s + Math.max(0, x.qty), 0), kind: "number" as const }
-      if (!showProfit)
-        return result(base, rows.map((x) => ({ company: x.company, article: x.article, color: x.color, size: x.size, qty: x.qty })), [{ label: "Items listed", value: rows.length, kind: "number" }, units])
+      const byMeter = rows.some((x) => x.lt)
+      const meters = (x: Record<string, any>) => (x.lt ? Math.round((Math.max(0, x.qty) * x.lt) / 10 * 10) / 10 : 0)
+      const base = [text("company", "Company"), text("article", "Article"), text("color", "Variant"), text("size", "Size"), num("qty", "In stock"), ...(byMeter ? [num("meters", "Meters")] : [])]
+      const units = byMeter
+        ? { label: "Meters in stock", value: Math.round(rows.reduce((s, x) => s + meters(x), 0) * 10) / 10, kind: "number" as const }
+        : { label: "Units in stock", value: rows.reduce((s, x) => s + Math.max(0, x.qty), 0), kind: "number" as const }
+      const lineOf = (x: Record<string, any>) => ({ company: x.company, article: x.article, color: x.color, size: x.size, qty: x.qty, ...(byMeter ? { meters: meters(x) } : {}) })
+      if (!showProfit) return result(base, rows.map(lineOf), [{ label: "Items listed", value: rows.length, kind: "number" }, units])
       return result(
         [...base, money("cost", "Average cost"), money("value", "Stock value")],
-        rows.map((x) => ({ company: x.company, article: x.article, color: x.color, size: x.size, qty: x.qty, cost: r(x.cost), value: r(Math.max(0, x.qty) * x.cost) })),
+        rows.map((x) => ({ ...lineOf(x), cost: r(x.lt ? (x.cost * 10) / x.lt : x.cost), value: r(Math.max(0, x.qty) * x.cost) })),
         [{ label: "Stock value", value: r(value) }, { label: "Items listed", value: rows.length, kind: "number" }, units],
       )
     }

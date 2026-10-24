@@ -7,6 +7,7 @@ import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 import { isFlagEnabled, resolveTimestamp } from "./policy"
 import { customerBalance } from "./queries"
+import { perThan } from "./meters"
 
 export interface SaleLineInput {
   variantId: number
@@ -153,19 +154,22 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
     const lines = input.lines.map((l) => {
       if (!Number.isInteger(l.qty) || l.qty <= 0) throw new AppError("VALIDATION", "Quantity must be a whole number greater than zero")
       const v = db
-        .prepare("SELECT id, sale_price, wholesale_price, size_label, active FROM variants WHERE id = ?")
-        .get(l.variantId) as { id: number; sale_price: number; wholesale_price: number | null; size_label: string | null; active: number } | undefined
+        .prepare("SELECT id, sale_price, wholesale_price, size_label, length_tenths, active FROM variants WHERE id = ?")
+        .get(l.variantId) as { id: number; sale_price: number; wholesale_price: number | null; size_label: string | null; length_tenths: number | null; active: number } | undefined
       if (!v) throw new AppError("NOT_FOUND", `Variant ${l.variantId} not found`)
       if (!v.active) throw new AppError("INVALID_STATE", `Variant ${l.variantId} is inactive`)
       const standard = defaultRate(db, v)
-      const rate = l.rate ?? standard
-      if (rate <= 0) throw new AppError("VALIDATION", "Enter the rate for every item")
+      // a variant with a length is sold by the meter: the rate typed is per meter, the than costs length x rate
+      const typed = l.rate ?? standard
+      if (typed <= 0) throw new AppError("VALIDATION", "Enter the rate for every item")
       // with no fixed price on the product, the rate typed on the bill is the price, not an override
-      if (standard > 0 && rate !== standard) requirePermission(actor, "sale.price_override")
+      if (standard > 0 && typed !== standard) requirePermission(actor, "sale.price_override")
+      const rate = v.length_tenths === null ? typed : perThan(typed, v.length_tenths)
+      const rateM = v.length_tenths === null ? null : typed
       const gross = lineAmount(rate, l.qty)
       const discount = l.discount ?? 0
       if (!Number.isSafeInteger(discount) || discount < 0 || discount > gross) throw new AppError("VALIDATION", "Invalid line discount")
-      return { variantId: v.id, qty: l.qty, rate, discount, gross, lineTotal: gross - discount, sizeLabel: v.size_label }
+      return { variantId: v.id, qty: l.qty, rate, rateM, len: v.length_tenths, discount, gross, lineTotal: gross - discount, sizeLabel: v.size_label }
     })
 
     const subtotal = lines.reduce((s, l) => s + l.gross, 0)
@@ -232,9 +236,9 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
         }).value
       }
       db.prepare(
-        `INSERT INTO sale_lines(sale_id, variant_id, qty, rate, discount, line_total, unit_cost, cost_total, size_label)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-      ).run(saleId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, Math.round(costTotal / l.qty), costTotal, l.sizeLabel)
+        `INSERT INTO sale_lines(sale_id, variant_id, qty, rate, discount, line_total, unit_cost, cost_total, size_label, length_tenths, rate_m)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(saleId, l.variantId, l.qty, l.rate, l.discount, l.lineTotal, Math.round(costTotal / l.qty), costTotal, l.sizeLabel, l.len, l.rateM)
     }
 
     // Sale and payment are separate facts: the sale is a debit, each payment a credit.

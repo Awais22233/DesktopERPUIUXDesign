@@ -4,6 +4,7 @@ import { requirePermission, type Actor } from "@core/permissions"
 import { audit, tx } from "../db/util"
 import { ensureColour } from "./colours"
 import { postMovement } from "./stock"
+import { lengthLabel, perThan, toTenths } from "./meters"
 import { addAccountEntry, addLedgerEntry } from "./posting"
 
 const clean = (v: string | undefined | null) => (v === undefined || v === null || v.trim() === "" ? null : v.trim())
@@ -103,6 +104,8 @@ export interface ProductForm {
   design?: string
   /** free text, e.g. "40 meter" */
   size?: string
+  /** cloth: length of the than in meters (one decimal). Prices are then per meter. */
+  length?: number
   unit?: string
   barcode?: string
   sku?: string
@@ -126,6 +129,8 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
   if (f.wholesalePrice != null && (!Number.isSafeInteger(f.wholesalePrice) || f.wholesalePrice < 0)) throw new AppError("VALIDATION", "Wholesale price must be zero or more")
   if (f.minStock !== undefined && (!Number.isInteger(f.minStock) || f.minStock < 0)) throw new AppError("VALIDATION", "Minimum stock must be a whole number")
 
+  const tenths = f.length === undefined || f.length === null ? null : toTenths(f.length)
+  const sizeText = tenths === null ? clean(f.size) : lengthLabel(tenths)
   return tx(db, () => {
     let companyId = (db.prepare("SELECT id FROM companies WHERE name = ?").get(company) as { id: number } | undefined)?.id
     if (!companyId) companyId = Number(db.prepare("INSERT INTO companies(name) VALUES (?)").run(company).lastInsertRowid)
@@ -148,18 +153,24 @@ export function saveProduct(db: DB, actor: Actor, f: ProductForm): number {
     if (!itemId) itemId = Number(db.prepare("INSERT INTO items(company_id, category_id, name) VALUES (?,?,?)").run(companyId, categoryId, article).lastInsertRowid)
     else if (categoryId) db.prepare("UPDATE items SET category_id = ? WHERE id = ?").run(categoryId, itemId)
 
-    const vals = [clean(f.sku), clean(f.barcode), ensureColour(db, f.color), clean(f.design), clean(f.size), f.unit?.trim() || "piece", f.purchasePrice, f.salePrice, f.wholesalePrice ?? null, f.minStock ?? 0] as const
+    const vals = [clean(f.sku), clean(f.barcode), ensureColour(db, f.color), clean(f.design), sizeText, f.unit?.trim() || "piece", f.purchasePrice, f.salePrice, f.wholesalePrice ?? null, f.minStock ?? 0] as const
     let id: number
     if (f.id) {
-      if (!db.prepare("SELECT 1 FROM variants WHERE id = ?").get(f.id)) throw new AppError("NOT_FOUND", "Product not found")
+      const old = db.prepare("SELECT length_tenths FROM variants WHERE id = ?").get(f.id) as { length_tenths: number | null } | undefined
+      if (!old) throw new AppError("NOT_FOUND", "Product not found")
+      if (f.length !== undefined && f.length !== null && old.length_tenths !== tenths) {
+        const used = db.prepare("SELECT 1 FROM stock_movements WHERE variant_id = ? LIMIT 1").get(f.id) || db.prepare("SELECT 1 FROM sale_lines WHERE variant_id = ? LIMIT 1").get(f.id)
+        if (used) throw new AppError("VALIDATION", "The length cannot be changed after this product has been used. Buy the new length in a purchase instead.")
+        db.prepare("UPDATE variants SET length_tenths = ? WHERE id = ?").run(tenths, f.id)
+      }
       dup(() => db.prepare("UPDATE variants SET item_id=?, sku=?, barcode=?, color=?, design=?, size_label=?, unit=?, purchase_price=?, sale_price=?, wholesale_price=?, min_stock=?, active=? WHERE id=?").run(itemId, ...vals, f.active === false ? 0 : 1, f.id), "That SKU or barcode is already used by another product")
       id = f.id
       audit(db, actor.userId, "product.update", "variant", id, { article, color: f.color })
     } else {
-      id = dup(() => Number(db.prepare("INSERT INTO variants(item_id, sku, barcode, color, design, size_label, unit, purchase_price, sale_price, wholesale_price, min_stock) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(itemId, ...vals).lastInsertRowid), "That SKU or barcode is already used by another product")
+      id = dup(() => Number(db.prepare("INSERT INTO variants(item_id, sku, barcode, color, design, size_label, unit, purchase_price, sale_price, wholesale_price, min_stock, length_tenths) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(itemId, ...vals, tenths).lastInsertRowid), "That SKU or barcode is already used by another product")
       audit(db, actor.userId, "product.create", "variant", id, { article, color: f.color })
       if (f.openingQty && f.openingQty > 0) {
-        postMovement(db, { variantId: id, qtyDelta: f.openingQty, unitCost: f.openingCost ?? f.purchasePrice, type: "opening", sourceType: "opening", userId: actor.userId, ts: new Date().toISOString() })
+        postMovement(db, { variantId: id, qtyDelta: f.openingQty, unitCost: tenths === null ? (f.openingCost ?? f.purchasePrice) : perThan(f.openingCost ?? f.purchasePrice, tenths), type: "opening", sourceType: "opening", userId: actor.userId, ts: new Date().toISOString() })
       }
     }
     return id
@@ -173,6 +184,7 @@ export interface ColoursForm {
   subcategory?: string
   design?: string
   size?: string
+  length?: number
   unit?: string
   purchasePrice: number
   salePrice: number
@@ -213,14 +225,14 @@ export function saveProductColors(db: DB, actor: Actor, f: ColoursForm): { creat
           `SELECT 1 FROM variants v JOIN items i ON i.id = v.item_id JOIN companies co ON co.id = i.company_id
            WHERE co.name = ? AND i.name = ? AND lower(COALESCE(v.color,'')) = lower(?) AND COALESCE(v.size_label,'') = COALESCE(?, '') AND COALESCE(v.design,'') = COALESCE(?, '')`,
         )
-        .get(company, article, c.color, clean(f.size), clean(f.design))
+        .get(company, article, c.color, f.length === undefined ? clean(f.size) : lengthLabel(toTenths(f.length)), clean(f.design))
       if (exists) {
         skipped.push(c.color)
         continue
       }
       created.push(
         saveProduct(db, actor, {
-          company, article, category: f.category, subcategory: f.subcategory, design: f.design, size: f.size, unit: f.unit,
+          company, article, category: f.category, subcategory: f.subcategory, design: f.design, size: f.size, length: f.length, unit: f.unit,
           purchasePrice: f.purchasePrice, salePrice: f.salePrice, wholesalePrice: f.wholesalePrice, minStock: f.minStock,
           color: c.color, openingQty: c.openingQty, openingCost: f.purchasePrice,
         }),

@@ -87,7 +87,7 @@ import type { Snapshot, SessionUser, LedgerView, ReportResult, Product, Transact
 
 type Id = string
 
-export interface LineIn { productId: Id; qty: number; rate?: number; discount?: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
+export interface LineIn { productId: Id; qty: number; /** than length in meters (cloth); then rate is per meter */ length?: number; rate?: number; discount?: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
 export interface PayIn { account: string; method: string; amount: number }
 
 /** Single source of truth for the renderer <-> main contract. Amounts are rupees (converted to paisa in main). */
@@ -125,10 +125,10 @@ export interface IpcContract {
   "stock:count": { req: { lines: { productId: Id; counted: number }[]; note?: string }; res: { adjusted: number } }
   "opening:party": { req: { kind: "customer" | "supplier"; id: Id; amount: number }; res: null }
   "opening:account": { req: { account: string; amount: number }; res: null }
-  "opening:stock": { req: { productId: Id; qty: number; cost: number }; res: null }
+  "opening:stock": { req: { productId: Id; qty: number; cost: number; length?: number }; res: null }
   "party:save": { req: { kind: "customer" | "supplier"; id?: Id; name: string; city?: string; phone?: string; whatsapp?: string; area?: string; address?: string; notes?: string; limit?: number; terms?: number | null; active?: boolean; openingBalance?: number }; res: { id: string } }
-  "product:save": { req: { id?: Id; company: string; article: string; category?: string; subcategory?: string; color?: string; design?: string; size?: string; unit?: string; barcode?: string; sku?: string; cost: number; rate: number; wholesale?: number | null; minStock?: number; active?: boolean; openingQty?: number }; res: { id: string } }
-  "product:colors": { req: { company: string; article: string; category?: string; subcategory?: string; design?: string; size?: string; unit?: string; cost: number; rate: number; wholesale?: number | null; minStock?: number; colors: { color: string; openingQty?: number }[] }; res: { created: string[]; skipped: string[] } }
+  "product:save": { req: { id?: Id; company: string; article: string; category?: string; subcategory?: string; color?: string; design?: string; size?: string; unit?: string; barcode?: string; sku?: string; cost: number; rate: number; wholesale?: number | null; minStock?: number; active?: boolean; openingQty?: number; length?: number }; res: { id: string } }
+  "product:colors": { req: { company: string; article: string; category?: string; subcategory?: string; design?: string; size?: string; unit?: string; length?: number; cost: number; rate: number; wholesale?: number | null; minStock?: number; colors: { color: string; openingQty?: number }[] }; res: { created: string[]; skipped: string[] } }
   "colours:list": { req: undefined; res: { id: number; name: string; hex: string | null; uses: number }[] }
   "colour:save": { req: { id?: number; name: string; hex?: string | null }; res: { id: number } }
   "colour:delete": { req: { id: number }; res: null }

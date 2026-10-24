@@ -3,6 +3,7 @@ import { BrandMark, useBusiness, type Business } from "./business"
 import { applyTextSize, readTextSize, type TextSize } from "./display"
 import { api } from "./backend"
 import type { BackupInfo, BackupStatus, BackupSummary } from "@shared/ipc"
+import { PROFIT_REPORTS } from "@shared/profiles"
 import type { Masters, ReportResult, ReturnRow } from "@shared/models"
 import { useEffect, useRef, useState } from "react"
 import { useDebounced, useRemote } from "./remote"
@@ -114,7 +115,7 @@ export function Reports({
   }, [selected, range, filter, tick])
   const visibleGroups = Object.fromEntries(
     Object.entries(reportGroups)
-      .map(([g, list]) => [g, list.filter((r) => (r === "Sales by City" || r === "City-wise Analysis" || r === "City Profitability" ? isEnabled("cityWise") : /Near Expiry|Expired Items|Batch Stock/.test(r) ? isEnabled("expiry") || isEnabled("batch") : true))])
+      .map(([g, list]) => [g, list.filter((r) => (PROFIT_REPORTS.includes(r) && !isEnabled("profit") ? false : r === "Sales by City" || r === "City-wise Analysis" || r === "City Profitability" ? isEnabled("cityWise") : /Near Expiry|Expired Items|Batch Stock/.test(r) ? isEnabled("expiry") || isEnabled("batch") : true))])
       .filter(([, list]) => (list as string[]).length > 0),
   ) as Record<string, string[]>
   if (!selected)
@@ -141,7 +142,9 @@ export function Reports({
               subtitle: "Understand your business profitability",
               icon: TrendingIcon,
             },
-          ].map((r) => (
+          ]
+            .filter((r) => isEnabled("profit") || !PROFIT_REPORTS.includes(r.title))
+            .map((r) => (
             <Action onClick={() => onSelect(r.title)} key={r.title}>
               <span className="report-icon">
                 <r.icon size={21} />

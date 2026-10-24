@@ -5,6 +5,8 @@ import type { ReportResult } from "@shared/models"
 import { dayRange } from "./closing"
 import { profitSummary } from "./queries"
 import { bizDate, docLabel } from "./snapshot"
+import { getConfig } from "./config"
+import { PROFIT_REPORTS } from "@shared/profiles"
 
 const r = (minor: number) => minor / 100
 type Row = Record<string, string | number>
@@ -47,6 +49,8 @@ function runReportRaw(db: DB, q: ReportRequest): ReportResult {
   const all = (sql: string, ...args: unknown[]) => db.prepare(sql).all(...args) as Record<string, any>[]
   const d = (iso: string) => bizDate(iso, off)
   const like = f ? `%${f}%` : "%"
+  const showProfit = getConfig(db).flags.profit
+  if (!showProfit && PROFIT_REPORTS.includes(q.name)) throw new AppError("FORBIDDEN", "Profit and cost reports are switched off in Settings")
 
   switch (q.name) {
     case "Daily Sales": {
@@ -96,10 +100,14 @@ function runReportRaw(db: DB, q: ReportRequest): ReportResult {
       const rows = all(`SELECT i.name article, COALESCE(v.color,'') color, COALESCE(v.size_label,'') size, co.name company, COALESCE(sl.qty,0) qty, COALESCE(sl.avg_cost,0) cost, v.min_stock mn FROM variants v JOIN items i ON i.id=v.item_id JOIN companies co ON co.id=i.company_id LEFT JOIN stock_levels sl ON sl.variant_id=v.id WHERE v.active=1 AND co.name LIKE ? ORDER BY co.name, i.name, v.color`, like)
         .filter((x) => (q.name === "Low Stock" ? x.qty > 0 && x.qty <= x.mn : q.name === "Out of Stock" ? x.qty <= 0 : true))
       const value = rows.reduce((s, x) => s + Math.max(0, x.qty) * x.cost, 0)
+      const base = [text("company", "Company"), text("article", "Article"), text("color", "Variant"), text("size", "Size"), num("qty", "In stock")]
+      const units = { label: "Units in stock", value: rows.reduce((s, x) => s + Math.max(0, x.qty), 0), kind: "number" as const }
+      if (!showProfit)
+        return result(base, rows.map((x) => ({ company: x.company, article: x.article, color: x.color, size: x.size, qty: x.qty })), [{ label: "Items listed", value: rows.length, kind: "number" }, units])
       return result(
-        [text("company", "Company"), text("article", "Article"), text("color", "Variant"), text("size", "Size"), num("qty", "In stock"), money("cost", "Average cost"), money("value", "Stock value")],
+        [...base, money("cost", "Average cost"), money("value", "Stock value")],
         rows.map((x) => ({ company: x.company, article: x.article, color: x.color, size: x.size, qty: x.qty, cost: r(x.cost), value: r(Math.max(0, x.qty) * x.cost) })),
-        [{ label: "Stock value", value: r(value) }, { label: "Items listed", value: rows.length, kind: "number" }, { label: "Units in stock", value: rows.reduce((s, x) => s + Math.max(0, x.qty), 0), kind: "number" }],
+        [{ label: "Stock value", value: r(value) }, { label: "Items listed", value: rows.length, kind: "number" }, units],
       )
     }
     case "Stock Movement": {

@@ -192,7 +192,7 @@ export default function Dashboard({
       : []),
     { title: "Today's purchases", amount: d.todayPurchases, icon: ShoppingBag, delta: "", detail: `${d.todayPurchaseCount} purchase invoice${d.todayPurchaseCount === 1 ? "" : "s"}`, tone: "blue" },
     // profit is for people allowed to see reports; a counter salesman does not need it
-    ...(session.can("report.view") ? [{ title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" }] : []),
+    ...(session.can("report.view") && isEnabled("profit") ? [{ title: "Gross profit", amount: d.grossProfit, icon: TrendingUp, delta: d.margin === null ? "" : `${d.margin}% margin`, detail: "Before operating expenses", tone: "green" }] : []),
   ]
   const low = d.lowStock
   const rows =
@@ -275,13 +275,7 @@ export default function Dashboard({
             tone: "amber",
             page: "Suppliers",
           },
-          {
-            label: "Stock value",
-            amount: d.stockValue,
-            icon: Package,
-            tone: "indigo",
-            page: "Inventory",
-          },
+          ...(isEnabled("profit") ? [{ label: "Stock value", amount: d.stockValue, icon: Package, tone: "indigo", page: "Inventory" }] : []),
           {
             label: "Today's expenses",
             amount: d.todayExpenses,

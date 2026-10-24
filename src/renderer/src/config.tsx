@@ -14,6 +14,7 @@ export const featureMeta: { key: FlagKey; title: string; description: string; wi
   { key: "wholesalePrice", title: "Wholesale price", description: "Second price on every variant", wired: false },
   { key: "barcode", title: "Barcode", description: "Scan to add items in the sales screen", wired: false },
   { key: "batch", title: "Batch", description: "Batch number and manufacturing date", wired: false },
+  { key: "profit", title: "Show profit and cost", description: "Profit, margin, average cost and stock value at cost. Off hides them everywhere.", wired: true },
   { key: "expiry", title: "Expiry alerts", description: "Admin alerts for items near expiry", wired: false },
 ]
 

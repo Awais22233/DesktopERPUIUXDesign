@@ -25,7 +25,7 @@ export async function launch(profile, client, opts = {}) {
   const app = await electron.launch({
     executablePath: require("electron"),
     args: [root, "--no-sandbox", "--disable-gpu"],
-    env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_FORCE_CSP: "1", ERP_NO_DIALOGS: "1" },
+    env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_FORCE_CSP: "1", ERP_NO_DIALOGS: "1", ...(opts.profitHidden ? {} : { ERP_TEST_PROFIT: "1" }) },
   })
   const page = await app.firstWindow()
   page.setDefaultTimeout(8000)

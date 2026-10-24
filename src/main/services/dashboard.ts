@@ -4,6 +4,7 @@ import type { DashboardData } from "@shared/models"
 import { dayRange } from "./closing"
 import { profitSummary } from "./queries"
 import { bizDate } from "./snapshot"
+import { getConfig } from "./config"
 import { inventorySummary, listDocs, listProducts } from "./lists"
 
 const r = (minor: number) => minor / 100
@@ -34,6 +35,7 @@ export function buildDashboard(db: DB, today: string): DashboardData {
   const { from, to } = dayRange(db, today)
   const one = (sql: string, ...args: unknown[]) => (db.prepare(sql).get(...args) as { v: number }).v
 
+  const showProfit = getConfig(db).flags.profit
   const todayProfit = profitSummary(db, from, to)
   const todaySalesCount = one("SELECT COUNT(*) v FROM sales WHERE status='completed' AND ts >= ? AND ts < ?", from, to)
   const todayRecovery = one("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE kind='customer_receipt' AND status='posted' AND ts >= ? AND ts < ?", from, to)
@@ -113,11 +115,11 @@ export function buildDashboard(db: DB, today: string): DashboardData {
     todayPurchases: r(todayPurchases),
     todayPurchaseCount,
     todayExpenses: r(todayProfit.expenses),
-    grossProfit: r(todayProfit.grossProfit),
-    margin: todayProfit.netSales > 0 ? Math.round((todayProfit.grossProfit / todayProfit.netSales) * 1000) / 10 : null,
+    grossProfit: showProfit ? r(todayProfit.grossProfit) : 0,
+    margin: showProfit && todayProfit.netSales > 0 ? Math.round((todayProfit.grossProfit / todayProfit.netSales) * 1000) / 10 : null,
     receivables: r(one("SELECT COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) v FROM v_customer_balance")),
     payables: r(one("SELECT COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) v FROM v_supplier_balance")),
-    stockValue: r(one("SELECT COALESCE(SUM(value),0) v FROM stock_levels WHERE qty > 0")),
+    stockValue: !showProfit ? 0 : r(one("SELECT COALESCE(SUM(value),0) v FROM stock_levels WHERE qty > 0")),
     receivedCash: r(receivedCash),
     receivedBank: r(receivedBank),
     salesReceived: r(salesReceived),

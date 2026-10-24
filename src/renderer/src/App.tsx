@@ -308,7 +308,7 @@ export default function App() {
     const res = await run(() =>
       purchase
         ? api("purchase:create", { supplierId: t.partyId!, supplierInvoice: t.supplierInvoice, lines, discount: t.invoiceDiscount, payments, date: t.date })
-        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments }),
+        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments, invoiceNo: t.supplierInvoice }),
     )
     if (!res) return false
     const warning = (res as { warnings?: string[] }).warnings?.[0]
@@ -781,10 +781,11 @@ export default function App() {
           </Button>
         </PageHeading>
         <div className="summary-grid four">
-          <Summary
-            label="Total stock value"
-            value={money(sum.value)}
-          />
+          {isEnabled("profit") ? (
+            <Summary label="Total stock value" value={money(sum.value)} />
+          ) : (
+            <Summary label="Products" value={sum.items.toLocaleString()} />
+          )}
           <Summary
             label={`Total available ${L.units}`}
             value={sum.units.toLocaleString()}
@@ -865,24 +866,15 @@ export default function App() {
                 right: true,
                 render: (p) => <strong className={p.stock === 0 ? "red-text" : p.stock <= p.minStock ? "amber-text" : ""}>{p.stock}</strong>,
               },
-              {
-                key: "cost",
-                label: "Avg. cost",
-                right: true,
-                render: (p) => money(p.cost),
-              },
-              {
-                key: "rate",
-                label: "Sale rate",
-                right: true,
-                render: (p) => money(p.rate),
-              },
-              {
-                key: "value",
-                label: "Stock value",
-                right: true,
-                render: (p) => money(p.stock * p.cost),
-              },
+
+              ...(isEnabled("profit")
+                ? [
+                    { key: "cost", label: "Avg. cost", right: true, render: (p: Product) => money(p.cost) },
+                    { key: "rate", label: "Sale rate", right: true, render: (p: Product) => money(p.rate) },
+                    { key: "value", label: "Stock value", right: true, render: (p: Product) => money(p.stock * p.cost) },
+                  ]
+                : [{ key: "rate", label: "Sale rate", right: true, render: (p: Product) => (p.rate > 0 ? money(p.rate) : "—") }]),
+
               {
                 key: "status",
                 label: "Status",
@@ -1576,6 +1568,18 @@ export default function App() {
             thermalWidth={store.masters.settings["print.thermal_width"]}
             purchase={(data as Transaction | undefined)?.kind === "purchase"}
             canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
+            onRenumber={
+              type === "invoice" && (data as Transaction)?.kind === "sale" && session.can("sale.void")
+                ? async (invoiceNo) => {
+                    const res = await run(() => api("sale:renumber", { id: (data as Transaction).id, invoiceNo }))
+                    if (res) {
+                      closeModal()
+                      notify(`Bill number changed to ${invoiceNo}.`)
+                    }
+                    return !!res
+                  }
+                : undefined
+            }
             onVoid={async (reason) => {
               const t = data as Transaction
               const purchase = t.kind === "purchase"

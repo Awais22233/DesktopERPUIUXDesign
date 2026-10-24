@@ -25,6 +25,8 @@ export type Product = {
   color: string
   design?: string
   size: string
+  /** cloth: length of one than in meters (null = not sold by the meter). Prices are then per meter. */
+  length: number | null
   unit: string
   barcode?: string
   sku?: string
@@ -44,7 +46,7 @@ export type Product = {
   /** base name of the stored photo (see imageUrl), when the product has one */
   image?: string
 }
-export type CartItem = { productId: string; name: string; color: string; size: string; qty: number; rate: number; discount: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
+export type CartItem = { productId: string; name: string; color: string; size: string; /** stable key of a cart line when one product is on the bill in several lengths */ uid?: string; /** meters of one than; on a bill line `rate` is per than and `rateM` per meter */ length?: number; rateM?: number; qty: number; rate: number; discount: number; batchNo?: string; mfgDate?: string; expiryDate?: string }
 export type Transaction = {
   id: string
   /** which book the document belongs to (set by the engine) */

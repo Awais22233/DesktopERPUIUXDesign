@@ -60,11 +60,13 @@ export function mapProduct(v: Record<string, any>, wholesale: boolean): Product 
     color: v.color ?? "",
     design: v.design ?? "",
     size: v.size_label ?? "",
+    length: v.length_tenths == null ? null : v.length_tenths / 10,
     unit: v.unit,
     barcode: v.barcode ?? "",
     sku: v.sku ?? "",
     stock: v.stock,
-    cost: r(v.avg_cost || v.purchase_price),
+    // by the meter: the average cost is kept per than, shown per meter like every other price of the product
+    cost: v.length_tenths == null ? r(v.avg_cost || v.purchase_price) : v.avg_cost ? r((v.avg_cost * 10) / v.length_tenths) : r(v.purchase_price),
     purchasePrice: r(v.purchase_price),
     rate: r(v.sale_price),
     price: r(wholesale && v.wholesale_price != null ? v.wholesale_price : v.sale_price),
@@ -166,14 +168,14 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
   const lines = db
     .prepare(
       sale
-        ? `SELECT l.sale_id AS doc, l.variant_id, l.qty, l.rate, l.discount, l.size_label, i.name AS article, v.color FROM sale_lines l JOIN variants v ON v.id = l.variant_id JOIN items i ON i.id = v.item_id WHERE l.sale_id IN (${marks}) ORDER BY l.id`
-        : `SELECT l.purchase_id AS doc, l.variant_id, l.qty, l.rate, l.discount, v.size_label, i.name AS article, v.color FROM purchase_lines l JOIN variants v ON v.id = l.variant_id JOIN items i ON i.id = v.item_id WHERE l.purchase_id IN (${marks}) ORDER BY l.id`,
+        ? `SELECT l.sale_id AS doc, l.variant_id, l.qty, l.rate, l.discount, l.size_label, l.length_tenths, l.rate_m, i.name AS article, v.color FROM sale_lines l JOIN variants v ON v.id = l.variant_id JOIN items i ON i.id = v.item_id WHERE l.sale_id IN (${marks}) ORDER BY l.id`
+        : `SELECT l.purchase_id AS doc, l.variant_id, l.qty, l.rate, l.discount, v.size_label, l.length_tenths, l.rate_m, i.name AS article, v.color FROM purchase_lines l JOIN variants v ON v.id = l.variant_id JOIN items i ON i.id = v.item_id WHERE l.purchase_id IN (${marks}) ORDER BY l.id`,
     )
     .all(...ids) as Record<string, any>[]
   const byDoc = new Map<number, CartItem[]>()
   for (const l of lines) {
     const arr = byDoc.get(l.doc) ?? []
-    arr.push({ productId: fmtId("VAR", l.variant_id), name: `${l.article}${l.color ? " " + l.color : ""}`, color: l.color ?? "", size: l.size_label ?? "", qty: l.qty, rate: r(l.rate), discount: r(l.discount) })
+    arr.push({ productId: fmtId("VAR", l.variant_id), name: `${l.article}${l.color ? " " + l.color : ""}`, color: l.color ?? "", size: l.size_label ?? "", ...(l.length_tenths ? { length: l.length_tenths / 10, rateM: r(l.rate_m ?? 0) } : {}), qty: l.qty, rate: r(l.rate), discount: r(l.discount) })
     byDoc.set(l.doc, arr)
   }
   const pays = db

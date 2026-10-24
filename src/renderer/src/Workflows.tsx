@@ -6,6 +6,51 @@ import { PhotoField, ProductPhoto, type PhotoChoice } from "./photo"
 import { ColourChipsMulti, ColourPicker, FabricSwatch } from "./colours"
 import { loadDraft, saveDraft } from "./drafts"
 import { api } from "./backend"
+import { billRows, breakdown, fmtM, lineGross, metersOf } from "@shared/meters"
+const lk = (c: { uid?: string; productId: string }) => c.uid ?? c.productId
+
+/** One product (article + colour) is shown once, with a chip per length it is held in: "20 m × 5". */
+/** Sold by the meter: it has a length, or it is a cloth product that has never been stocked or given a size (its length comes with the first purchase). */
+const byTheMeter = (p: Product, thanOn: boolean) => (p.length !== null && p.length !== undefined) || (thanOn && !p.size && p.stock === 0)
+
+function groupProducts(list: Product[], thanOn: boolean): Product[][] {
+  const out: Product[][] = []
+  const at = new Map<string, Product[]>()
+  for (const p of list) {
+    if (!byTheMeter(p, thanOn)) {
+      out.push([p])
+      continue
+    }
+    const key = [p.company, p.article, p.color, p.design ?? ""].join("|")
+    const g = at.get(key)
+    if (g) g.push(p)
+    else {
+      const fresh = [p]
+      at.set(key, fresh)
+      out.push(fresh)
+    }
+  }
+  for (const g of at.values()) g.sort((a, b) => (a.length ?? 0) - (b.length ?? 0))
+  // a product with no length yet sorts first; it is only the anchor for "+ new length"
+  return out
+}
+
+function LengthChips({ items, purchase, onPick }: { items: Product[]; purchase: boolean; onPick: (p: Product, newLength?: boolean) => void }) {
+  return (
+    <div className="length-chips">
+      {items.filter((p) => p.length != null).map((p) => (
+        <Action key={p.id} className="length-chip" disabled={!purchase && p.stock === 0} onClick={() => onPick(p)} title={`${fmtM(p.length!)} meter than`}>
+          {fmtM(p.length!)} m × {p.stock}
+        </Action>
+      ))}
+      {purchase && (
+        <Action className="length-chip new-length" onClick={() => onPick(items[0], true)}>
+          + new length
+        </Action>
+      )}
+    </div>
+  )
+}
 import { billToPng, copyPng } from "./billImage"
 import type { LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
@@ -132,19 +177,23 @@ export function SalesWorkspace({
     if (!purchase && !draft?.invoice) void suggestNo()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const subtotal = cart.reduce((sum, i) => sum + i.qty * i.rate - i.discount, 0)
+  const subtotal = cart.reduce((sum, i) => sum + lineGross(i) - i.discount, 0)
   const total = Math.max(0, subtotal - Number(discount))
   const received =
     method === "Cash" ? total : method === "Credit" ? 0 : Number(paid || 0)
   const selectedParty = parties.find((p) => p.id === party) ?? (walkInId && party === walkInId ? ({ id: walkInId, name: "Walk-in customer", city: "", phone: "", balance: 0, limit: 0, status: "Clear" } as Party) : undefined)
-  function addProduct(p: Product) {
+  /** `newLength`: a purchase of a length this product has not had yet (the length is typed on the line). */
+  function addProduct(p: Product, newLength = false) {
     known.current.set(p.id, p)
     if (!purchase && p.stock === 0) return
+    const meter = byTheMeter(p, isEnabled("than"))
+    if (meter && p.length == null) newLength = true
+    const uid = meter ? (newLength ? `${p.id}@new${Date.now()}` : `${p.id}@${p.length}`) : undefined
     // functional update: a fast scan right after a save must never work from an old copy of the cart
     setCart((cur) =>
-      cur.some((c) => c.productId === p.id)
-        ? cur.map((c) => (c.productId === p.id ? { ...c, qty: c.qty + 1 } : c))
-        : [...cur, { productId: p.id, name: p.name, color: p.color, size: p.size, qty: 1, rate: purchase ? p.purchasePrice : p.price, discount: 0 }],
+      cur.some((c) => lk(c) === (uid ?? p.id))
+        ? cur.map((c) => (lk(c) === (uid ?? p.id) ? { ...c, qty: c.qty + 1 } : c))
+        : [...cur, { productId: p.id, uid, name: p.name, color: p.color, size: p.size, ...(meter ? { length: newLength ? 0 : p.length! } : {}), qty: 1, rate: (meter ? cur.find((c) => c.name === p.name && c.length !== undefined && c.rate > 0)?.rate : undefined) ?? (purchase ? p.purchasePrice : p.price), discount: 0 }],
     )
     setError("")
     // a wholesaler quotes each customer a rate of their own: start from what this customer paid last time
@@ -155,7 +204,7 @@ export function SalesWorkspace({
     }
   }
   function update(id: string, key: string, value: number | string) {
-    setCart((cur) => cur.map((c) => (c.productId === id ? { ...c, [key]: value } : c)))
+    setCart((cur) => cur.map((c) => (lk(c) === id ? { ...c, [key]: value } : c)))
   }
   async function save(print: boolean) {
     if (savingNow.current || cart === savedCart.current) return // already saving, or a stale copy of a bill that is already saved
@@ -173,8 +222,10 @@ export function SalesWorkspace({
   async function saveBill(print: boolean): Promise<boolean> {
     if (!party) return fail(`Select a ${purchase ? "supplier" : "party"} before saving.`)
     if (!cart.length) return fail("Add at least one product to the invoice.")
-    if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > c.qty * c.rate))
+    if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > lineGross(c)))
       return fail(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
+    if (purchase && cart.some((c) => c.length !== undefined && !(c.length > 0))) return fail("Enter the length (meters) of every than.")
+    if (cart.some((c) => c.length !== undefined && Math.abs(c.length * 10 - Math.round(c.length * 10)) > 1e-6)) return fail("Length can have only one decimal, e.g. 44.5.")
     if (!purchase && cart.some((c) => !(c.rate > 0))) return fail("Enter the rate for every item.")
     if (!purchase && cart.some((c) => known.current.has(c.productId) && c.qty > known.current.get(c.productId)!.stock))
       return fail("The quantity exceeds available stock. Please adjust the quantity.")
@@ -316,7 +367,17 @@ export function SalesWorkspace({
             </div>
             {view === "grid" && found.length > 0 && (
               <div className="product-grid">
-                {found.map((p) => (
+                {groupProducts(found, isEnabled("than")).map((g) =>
+                  byTheMeter(g[0], isEnabled("than")) ? (
+                    <div className="product-card group-card" key={g[0].id}>
+                      <ProductPhoto product={g[0]} size="t" className="card-photo" />
+                      <strong title={g[0].name}>{g[0].name}</strong>
+                      <span className="card-sub">{g[0].company}</span>
+                      <LengthChips items={g} purchase={purchase} onPick={addProduct} />
+                      {(purchase ? g[0].purchasePrice : g[0].price) > 0 && <span className="card-price">{money(purchase ? g[0].purchasePrice : g[0].price)} / m</span>}
+                    </div>
+                  ) : (
+                  (([p]) => (
                   <Action className="product-card" key={p.id} disabled={!purchase && p.stock === 0} onClick={() => addProduct(p)}>
                     <ProductPhoto product={p} size="t" className="card-photo" />
                     <strong title={p.name}>{p.name}</strong>
@@ -326,11 +387,30 @@ export function SalesWorkspace({
                       {p.stock === 0 ? "Out of stock" : `${p.stock} ${L.units}`}
                     </small>
                   </Action>
-                ))}
+                  ))(g)
+                  ),
+                )}
               </div>
             )}
             <div className="product-picker" hidden={view === "grid"}>
-              {found.map((p) => (
+              {groupProducts(found, isEnabled("than")).map((g) =>
+                byTheMeter(g[0], isEnabled("than")) ? (
+                  <div className="product-option group-option" key={g[0].id}>
+                    {g[0].image ? <ProductPhoto product={g[0]} className="list-photo" /> : <FabricSwatch name={g[0].color} />}
+                    <span className="product-option-info">
+                      <strong>{g[0].name}</strong>
+                      <span>
+                        {g[0].company} · {g[0].article}
+                      </span>
+                      <LengthChips items={g} purchase={purchase} onPick={addProduct} />
+                    </span>
+                    <span className="product-option-right">
+                      {(purchase ? g[0].purchasePrice : g[0].price) > 0 && <strong>{money(purchase ? g[0].purchasePrice : g[0].price)} / m</strong>}
+                      <small>{g.reduce((s, x) => s + x.stock, 0)} {L.units} in stock</small>
+                    </span>
+                  </div>
+                ) : (
+                  (([p]) => (
                 <Action
                   className="product-option"
                   key={p.id}
@@ -355,7 +435,9 @@ export function SalesWorkspace({
                     <Plus size={15} />
                   </span>
                 </Action>
-              ))}
+                  ))(g)
+                ),
+              )}
             </div>
             {!found.length && !searching && (
               <div className="empty-state">
@@ -400,7 +482,7 @@ export function SalesWorkspace({
                     {batchOn && <th>Batch</th>}
                     {batchOn && isEnabled("expiry") && <th>Expiry</th>}
                     <th>Qty</th>
-                    <th>{L.rate}</th>
+                    <th>{cart.some((c) => c.length !== undefined) ? "Rate / meter" : L.rate}</th>
                     <th>Discount</th>
                     <th className="align-right">Amount</th>
                     <th />
@@ -408,24 +490,45 @@ export function SalesWorkspace({
                 </thead>
                 <tbody>
                   {cart.map((c) => (
-                    <tr key={c.productId}>
+                    <tr key={lk(c)}>
                       <td>
                         <div className="cell-two">
                           <strong>{c.name}</strong>
                           <span>
                             {c.color} · {c.productId}
                           </span>
+                          {c.length ? (
+                            <span className="meter-line">
+                              {c.qty} × {fmtM(c.length)} m = {fmtM(metersOf(c))} m
+                            </span>
+                          ) : null}
                         </div>
                       </td>
-                      <td>{c.size || "—"}</td>
+                      <td>
+                        {purchase && c.length !== undefined ? (
+                          <Input
+                            aria-label={`Length of ${c.name}`}
+                            type="number"
+                            min="0.1"
+                            step="0.1"
+                            placeholder="Meters"
+                            value={c.length || ""}
+                            onChange={(e) => update(lk(c), "length", +e.target.value)}
+                          />
+                        ) : c.length ? (
+                          `${fmtM(c.length)} m`
+                        ) : (
+                          c.size || "—"
+                        )}
+                      </td>
                       {batchOn && (
                         <td>
-                          <Input aria-label={`Batch of ${c.name}`} value={c.batchNo ?? ""} onChange={(e) => update(c.productId, "batchNo", e.target.value)} placeholder="Batch no." />
+                          <Input aria-label={`Batch of ${c.name}`} value={c.batchNo ?? ""} onChange={(e) => update(lk(c), "batchNo", e.target.value)} placeholder="Batch no." />
                         </td>
                       )}
                       {batchOn && isEnabled("expiry") && (
                         <td>
-                          <Input aria-label={`Expiry of ${c.name}`} type="date" value={c.expiryDate ?? ""} onChange={(e) => update(c.productId, "expiryDate", e.target.value)} />
+                          <Input aria-label={`Expiry of ${c.name}`} type="date" value={c.expiryDate ?? ""} onChange={(e) => update(lk(c), "expiryDate", e.target.value)} />
                         </td>
                       )}
                       <td>
@@ -436,7 +539,7 @@ export function SalesWorkspace({
                           step="1"
                           value={c.qty}
                           onChange={(e) =>
-                            update(c.productId, "qty", +e.target.value)
+                            update(lk(c), "qty", +e.target.value)
                           }
                         />
                       </td>
@@ -448,7 +551,7 @@ export function SalesWorkspace({
                           value={!purchase && !c.rate ? "" : c.rate}
                           placeholder={purchase ? undefined : "Rate"}
                           onChange={(e) =>
-                            update(c.productId, "rate", +e.target.value)
+                            update(lk(c), "rate", +e.target.value)
                           }
                         />
                       </td>
@@ -459,12 +562,12 @@ export function SalesWorkspace({
                           min="0"
                           value={c.discount}
                           onChange={(e) =>
-                            update(c.productId, "discount", +e.target.value)
+                            update(lk(c), "discount", +e.target.value)
                           }
                         />
                       </td>
                       <td className="align-right numeric">
-                        <strong>{money(c.qty * c.rate - c.discount)}</strong>
+                        <strong>{money(lineGross(c) - c.discount)}</strong>
                       </td>
                       <td>
                         <Action
@@ -473,7 +576,7 @@ export function SalesWorkspace({
                           onClick={() =>
                             setCart(
                               cart.filter(
-                                (row) => row.productId !== c.productId,
+                                (row) => lk(row) !== lk(c),
                               ),
                             )
                           }
@@ -708,6 +811,8 @@ export function EntryForm({
   const [product, setProduct] = useState<Product | undefined>(type === "adjust" && initial && "stock" in initial ? (initial as Product) : undefined)
   const editing = !!initial?.id && (type === "party" || type === "product")
   const prod = (editing && type === "product" ? initial : undefined) as Product | undefined
+  // cloth is bought and sold by the meter; an older product that only has a size text keeps working per than
+  const byMeter = isEnabled("than") && type === "product" && (!editing || prod?.length != null || !prod?.size)
   const [colour, setColour] = useState(prod?.color ?? "")
   const pty = (editing && type === "party" ? initial : undefined) as Party | undefined
   const financial = type === "recovery" || type === "supplier-payment"
@@ -992,24 +1097,30 @@ export function EntryForm({
                   <ColourPicker name="color" value={colour} onChange={setColour} label={isEnabled("than") ? "Colour" : "Variant (colour / type)"} />
                 </Field>
               )}
-              <Field label={L.size} hint={isEnabled("than") ? "Type it, e.g. 40 meter" : "e.g. 180 ml"}>
-                <Input name="size" list="size-list" defaultValue={prod?.size} />
-                <datalist id="size-list">
-                  {masters.thanSizes.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
-              </Field>
+              {byMeter ? (
+                <Field label="Than length (meters)" hint={editing ? "To add another length, buy it in a purchase." : "Optional. One decimal, e.g. 44.5. You can add more lengths when you buy."}>
+                  <Input name="length" type="number" min="0.1" step="0.1" placeholder="e.g. 40" defaultValue={prod?.length ?? ""} readOnly={editing && prod?.length != null} />
+                </Field>
+              ) : (
+                <Field label={L.size} hint={isEnabled("than") ? "Type it, e.g. 40 meter" : "e.g. 180 ml"}>
+                  <Input name="size" list="size-list" defaultValue={prod?.size} />
+                  <datalist id="size-list">
+                    {masters.thanSizes.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </Field>
+              )}
             </div>
             <div className="form-grid">
               {isEnabled("profit") ? (
-                <Field label="Purchase price (Rs.)" required>
+                <Field label={byMeter ? "Purchase price per meter (Rs.)" : "Purchase price (Rs.)"} required>
                   <Input name="cost" type="number" min="0" step="0.01" required defaultValue={prod?.purchasePrice} />
                 </Field>
               ) : (
                 <input type="hidden" name="cost" value={prod?.purchasePrice ?? 0} />
               )}
-              <Field label="Sale price (Rs.)" hint="Optional. You can type the rate on every bill.">
+              <Field label={byMeter ? "Sale price per meter (Rs.)" : "Sale price (Rs.)"} hint="Optional. You can type the rate on every bill.">
                 <Input name="rate" type="number" min="0" step="0.01" defaultValue={prod?.rate} />
               </Field>
             </div>
@@ -1349,6 +1460,8 @@ export function InvoicePreview({
   const [rollMm, setRollMm] = useState(0)
   const thermal = layout === "Thermal receipt"
   const doc = transaction ?? collection
+  const rows = billRows(transaction?.lines ?? [])
+  const meterBill = rows.some((r) => r.parts.length > 0)
   const before = doc?.balanceBefore ?? 0
   const after = doc?.balanceAfter ?? 0
   const hasBalance = !transaction?.walkIn && doc?.balanceBefore !== undefined && doc?.balanceAfter !== undefined
@@ -1415,7 +1528,10 @@ export function InvoicePreview({
           </Field>
           <div className="modal-footer">
             <Button onClick={() => setRenumbering(false)}>Keep {transaction.id}</Button>
-            <Button variant="primary" disabled={!newNo.trim() || newNo.trim() === transaction.id} onClick={() => void onRenumber(newNo.trim())}>
+            <Button variant="primary" disabled={!newNo.trim() || newNo.trim() === transaction.id} onClick={async () => {
+                if (await onRenumber(newNo.trim())) setRenumbering(false)
+              }}
+            >
               Save bill number
             </Button>
           </div>
@@ -1509,22 +1625,51 @@ export function InvoicePreview({
           </div>
         ) : thermal ? (
           <div className="receipt-lines">
-            {(transaction?.lines ?? []).map((l, i) => (
-              <div className="rl" key={`${l.productId}-${i}`}>
+            {rows.map((l, i) => (
+              <div className="rl" key={`${l.name}-${i}`}>
                 <strong className="rl-name">{l.name}</strong>
-                {(l.size || (l.color && !l.name.endsWith(l.color))) && <span className="rl-sub">{[l.size, l.color && !l.name.endsWith(l.color) ? l.color : ""].filter(Boolean).join(" · ")}</span>}
+                {l.parts.length === 0 && (l.size || (l.color && !l.name.endsWith(l.color))) && <span className="rl-sub">{[l.size, l.color && !l.name.endsWith(l.color) ? l.color : ""].filter(Boolean).join(" · ")}</span>}
+                {l.parts.length > 0 && (
+                  <span className="rl-sub">
+                    {breakdown(l.parts)} = {fmtM(l.meters)} m
+                  </span>
+                )}
                 <div className="rl-calc">
                   <span>
-                    {l.qty} × {money(l.rate)}
+                    {l.parts.length > 0 ? `${l.qty} thans @ ${money(l.rateM)}/m` : `${l.qty} × ${money(l.rate)}`}
                     {l.discount > 0 && ` − ${money(l.discount)}`}
                   </span>
-                  <strong>{money(l.qty * l.rate - l.discount)}</strong>
+                  <strong>{money(l.amount)}</strong>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <DataTable
+          meterBill ? (
+            <DataTable
+              plainHeader
+              rows={rows.map((r, i) => ({ ...r, sr: i + 1 }))}
+              columns={[
+                { key: "sr", label: "Sr" },
+                {
+                  key: "name",
+                  label: "Item name",
+                  render: (r) => (
+                    <div className="cell-two">
+                      <strong>{r.name}</strong>
+                    </div>
+                  ),
+                },
+                { key: "qty", label: "Thans", right: true },
+                { key: "parts", label: "Breakdown", render: (r) => (r.parts.length ? breakdown(r.parts) : "—") },
+                { key: "meters", label: "Total meters", right: true, render: (r) => (r.parts.length ? fmtM(r.meters) : "—") },
+                { key: "rateM", label: "Rate (per meter)", right: true, render: (r) => (r.parts.length ? money(r.rateM) : money(r.rate)) },
+                ...(rows.some((r) => r.discount > 0) ? [{ key: "discount", label: "Disc.", right: true, render: (r: (typeof rows)[number]) => money(r.discount) }] : []),
+                { key: "amount", label: "Total amount", right: true, render: (r) => money(r.amount) },
+              ]}
+            />
+          ) : (
+            <DataTable
             plainHeader
             rows={transaction?.lines ?? []}
             columns={[
@@ -1535,16 +1680,17 @@ export function InvoicePreview({
                   <div className="cell-two">
                     <strong>{r.name}</strong>
                     {r.color && !r.name.endsWith(r.color) && <span>{r.color}</span>}
+                    {r.length ? <span className="invoice-meters">Total {fmtM(metersOf(r))} meters</span> : null}
                   </div>
                 ),
               },
-              { key: "size", label: L.size, render: (r) => r.size || "—" },
-              { key: "qty", label: "Qty", right: true },
+              { key: "size", label: L.size, render: (r) => (r.length ? `${fmtM(r.length)} m` : r.size || "—") },
+              { key: "qty", label: "Qty", right: true, render: (r) => (r.length ? `${r.qty} × ${fmtM(r.length)}` : r.qty) },
               {
                 key: "rate",
                 label: "Rate",
                 right: true,
-                render: (r) => money(r.rate),
+                render: (r) => (r.length ? `${money(r.rateM ?? 0)} / m` : money(r.rate)),
               },
               {
                 key: "discount",
@@ -1560,6 +1706,7 @@ export function InvoicePreview({
               },
             ]}
           />
+          )
         )}
         {!receipt && (
           <div className="invoice-totals">

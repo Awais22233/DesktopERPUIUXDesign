@@ -74,6 +74,7 @@ import {
   Toast,
   downloadFile,
 } from "./ui"
+import { fmtM, thanPrice } from "@shared/meters"
 import { money, today, setToday, L, type Collection, type Party, type Product, type Transaction } from "./data"
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
@@ -304,7 +305,7 @@ export default function App() {
   async function saveTransaction(t: Transaction, print: boolean, purchase = false): Promise<boolean> {
     const account = t.account || cashAccount
     const payments = t.paid > 0 ? [{ account, method: methodFor(account), amount: t.paid }] : []
-    const lines = (t.lines ?? []).map((l) => ({ productId: l.productId, qty: l.qty, rate: l.rate, discount: l.discount, batchNo: l.batchNo, mfgDate: l.mfgDate, expiryDate: l.expiryDate }))
+    const lines = (t.lines ?? []).map((l) => ({ productId: l.productId, qty: l.qty, rate: l.rate, discount: l.discount, length: purchase ? l.length : undefined, batchNo: l.batchNo, mfgDate: l.mfgDate, expiryDate: l.expiryDate }))
     const res = await run(() =>
       purchase
         ? api("purchase:create", { supplierId: t.partyId!, supplierInvoice: t.supplierInvoice, lines, discount: t.invoiceDiscount, payments, date: t.date })
@@ -315,7 +316,7 @@ export default function App() {
     notify(warning ?? (purchase ? `Purchase ${res.id} saved.` : `Sale ${res.id} saved.`))
     if (print) {
       // Re-read the saved bill so it carries the party's balance before and after, exactly as it will on every reprint.
-      let saved: Transaction = { ...t, id: res.id, kind: purchase ? "purchase" : "sale", user: session.user.name }
+      let saved: Transaction = { ...t, id: res.id, kind: purchase ? "purchase" : "sale", user: session.user.name, lines: (t.lines ?? []).map((l) => (l.length ? { ...l, rateM: l.rate, rate: thanPrice(l.rate, l.length) } : l)) }
       try {
         const fresh = await api("docs:list", { kind: purchase ? "purchase" : "sale", no: res.id, pageSize: 1 })
         if (fresh.rows[0]) saved = fresh.rows[0]
@@ -384,9 +385,10 @@ export default function App() {
       }
       return
     }
+    if (type === "product" && "length" in data && !data.length && Number(data.openingQty) > 0) return notify("Enter the than length (meters) to record opening stock.")
     if (type === "product" && data.multi) {
       const list = JSON.parse(data.colours ?? "[]") as { color: string; openingQty?: number }[]
-      const res = await run(() => api("product:colors", { company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, design: data.design, size: data.size, unit: data.unit, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, colors: list }))
+      const res = await run(() => api("product:colors", { company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, design: data.design, size: data.size, length: data.length ? n("length") : undefined, unit: data.unit, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, colors: list }))
       if (res && typeof res === "object") {
         closeModal()
         const r = res as { created: string[]; skipped: string[] }
@@ -397,7 +399,7 @@ export default function App() {
     if (type === "product") {
       let photoProblem = ""
       const res = await run(async () => {
-        const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
+        const saved = await api("product:save", { id: initial?.id, company: data.company!, article: data.article!, category: data.category, subcategory: data.subcategory, color: data.color, design: data.design, size: data.size, length: data.length ? n("length") : undefined, unit: data.unit, barcode: data.barcode, sku: data.sku, cost: n("cost"), rate: n("rate"), wholesale: data.wholesale ? n("wholesale") : null, minStock: data.minStock ? n("minStock") : 0, active: data.active === undefined ? undefined : data.active === "Active", openingQty: data.openingQty ? n("openingQty") : undefined })
         // The product is already saved at this point. A photo problem must never make the form look unsaved:
         // pressing Save again would create the product (and its opening stock) a second time.
         try {
@@ -756,6 +758,9 @@ export default function App() {
   function inventoryPage() {
     const rows = inventory.data?.rows ?? []
     const sum = inventory.data?.summary ?? { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }
+    // one product, one line per length: the second and later lengths of a product are shown as part of it
+    const sameProduct = (a: Product, b: Product) => a.length != null && b.length != null && a.company === b.company && a.article === b.article && a.color === b.color && (a.design ?? "") === (b.design ?? "")
+    const more = new Set(rows.filter((p, i) => i > 0 && sameProduct(rows[i - 1], p)).map((p) => p.id))
     return (
       <>
         <PageHeading
@@ -845,26 +850,34 @@ export default function App() {
               {
                 key: "name",
                 label: "Product / article",
-                render: (p) => (
-                  <div className="cell-photo">
-                    <ProductPhoto product={p} className="row-photo" />
-                    <div className="cell-two">
-                      <strong>{p.name}</strong>
-                      <span>
-                        {p.article} · {p.category}
-                      </span>
+                render: (p) =>
+                  more.has(p.id) ? (
+                    <span className="muted same-product">↳ same product, another length</span>
+                  ) : (
+                    <div className="cell-photo">
+                      <ProductPhoto product={p} className="row-photo" />
+                      <div className="cell-two">
+                        <strong>{p.name}</strong>
+                        <span>
+                          {p.article} · {p.category}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ),
+                  ),
               },
-              { key: "company", label: "Company" },
-              { key: "color", label: "Variant", render: (p) => (p.color ? <span className="colour-cell"><ColourDot name={p.color} />{p.color}</span> : "—") },
-              { key: "size", label: L.size, render: (p) => p.size || "—" },
+              { key: "company", label: "Company", render: (p) => (more.has(p.id) ? "" : p.company) },
+              { key: "color", label: "Variant", render: (p) => (more.has(p.id) ? "" : p.color ? <span className="colour-cell"><ColourDot name={p.color} />{p.color}</span> : "—") },
+              { key: "size", label: L.size, render: (p) => (p.length != null ? `${fmtM(p.length)} m` : p.size || "—") },
               {
                 key: "stock",
                 label: "Qty",
                 right: true,
-                render: (p) => <strong className={p.stock === 0 ? "red-text" : p.stock <= p.minStock ? "amber-text" : ""}>{p.stock}</strong>,
+                render: (p) => (
+                  <>
+                    <strong className={p.stock === 0 ? "red-text" : p.stock <= p.minStock ? "amber-text" : ""}>{p.stock}</strong>
+                    {p.length != null && p.stock > 0 && <small className="muted"> = {fmtM(Math.round(p.stock * p.length * 10) / 10)} m</small>}
+                  </>
+                ),
               },
 
               ...(isEnabled("profit")
@@ -1573,7 +1586,8 @@ export default function App() {
                 ? async (invoiceNo) => {
                     const res = await run(() => api("sale:renumber", { id: (data as Transaction).id, invoiceNo }))
                     if (res) {
-                      closeModal()
+                      // the bill stays open on screen; only its number changes
+                      setModal((m) => (m ? { ...m, data: { ...(m.data as Transaction), id: invoiceNo } } : m))
                       notify(`Bill number changed to ${invoiceNo}.`)
                     }
                     return !!res

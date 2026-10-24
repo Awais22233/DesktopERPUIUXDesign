@@ -122,7 +122,7 @@ await step("double-clicking Save on a purchase, a recovery, a new customer, a ne
   await page.locator("input[name=company]").fill("Faraz Co")
   await page.locator("input[name=article]").fill("Echo")
   await page.locator("input[name=color]").fill("Red")
-  await page.locator("input[name=size]").fill("40 meter")
+  await page.locator("input[name=length]").fill("1")
   await page.locator("input[name=cost]").fill("900")
   await page.locator("input[name=rate]").fill("1300")
   await page.getByRole("button", { name: "Add product" }).last().dblclick()

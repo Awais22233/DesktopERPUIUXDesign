@@ -13,6 +13,7 @@ import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOp
 import { postPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale, suggestInvoiceNo, renumberSale } from "./services/sales"
+import { perThan, toTenths, variantForLength } from "./services/meters"
 import { bizDate, buildSnapshot } from "./services/snapshot"
 import { inventorySummary, listDocs, listMovements, listProducts } from "./services/lists"
 import { ledgerView } from "./services/ledger"
@@ -168,7 +169,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       const d = db()
       const lines = p.lines.map((l) => {
         const variantId = idNumber(l.productId)
-        return { variantId, qty: l.qty, rate: paisa(l.rate, "Rate"), discount: optPaisa(l.discount), batchId: undefined as number | undefined, _l: l }
+        return { variantId, qty: l.qty, rate: paisa(l.rate, "Rate"), discount: optPaisa(l.discount), lengthMeters: l.length, batchId: undefined as number | undefined, _l: l }
       })
       const res = tx(d, () => {
         for (const l of lines) l.batchId = batchFor(d, l.variantId, l._l)
@@ -222,7 +223,18 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "stock:count": (p) => ({ adjusted: postStockCount(db(), actor(), { lines: p.lines.map((l) => ({ variantId: idNumber(l.productId), countedQty: l.counted })), note: p.note }).adjusted }),
     "opening:party": (p) => (postOpeningPartyBalance(db(), actor(), { kind: p.kind, partyId: idNumber(p.id), amount: paisa(p.amount) }), null),
     "opening:account": (p) => (postOpeningAccountBalance(db(), actor(), { accountId: accountId(db(), p.account), amount: paisa(p.amount) }), null),
-    "opening:stock": (p) => (postOpeningStock(db(), actor(), { variantId: idNumber(p.productId), qty: p.qty, unitCost: paisa(p.cost) }), null),
+    "opening:stock": (p) => {
+      const d = db()
+      const a = actor()
+      tx(d, () => {
+        // cloth: the length picks (or creates) that length of the product, and the cost typed is per meter
+        const tenths = p.length === undefined ? null : toTenths(p.length)
+        const variantId = tenths === null ? idNumber(p.productId) : variantForLength(d, idNumber(p.productId), tenths)
+        const len = (d.prepare("SELECT length_tenths FROM variants WHERE id = ?").get(variantId) as { length_tenths: number | null }).length_tenths
+        postOpeningStock(d, a, { variantId, qty: p.qty, unitCost: len === null ? paisa(p.cost) : perThan(paisa(p.cost), len) })
+      })
+      return null
+    },
 
     "party:save": (p) => {
       const id = saveParty(db(), actor(), p.kind, {
@@ -233,7 +245,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     },
     "product:save": (p) => {
       const id = saveProduct(db(), actor(), {
-        id: p.id ? idNumber(p.id) : undefined, company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, color: p.color, design: p.design, size: p.size, unit: p.unit, barcode: p.barcode, sku: p.sku,
+        id: p.id ? idNumber(p.id) : undefined, company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, color: p.color, design: p.design, size: p.size, length: p.length, unit: p.unit, barcode: p.barcode, sku: p.sku,
         purchasePrice: paisa(p.cost), salePrice: paisa(p.rate), wholesalePrice: p.wholesale == null ? null : paisa(p.wholesale), minStock: p.minStock, active: p.active, openingQty: p.openingQty, openingCost: paisa(p.cost),
       })
       return { id: fmtId("VAR", id) }
@@ -241,7 +253,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
 
     "product:colors": (p) => {
       const r = saveProductColors(db(), actor(), {
-        company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, design: p.design, size: p.size, unit: p.unit,
+        company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, design: p.design, size: p.size, length: p.length, unit: p.unit,
         purchasePrice: paisa(p.cost), salePrice: paisa(p.rate), wholesalePrice: p.wholesale == null ? null : paisa(p.wholesale), minStock: p.minStock, colors: p.colors,
       })
       return { created: r.created.map((id) => fmtId("VAR", id)), skipped: r.skipped }

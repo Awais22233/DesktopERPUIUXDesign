@@ -78,7 +78,7 @@ await step("add products with a free-text than size", async () => {
     await page.locator("input[name=company]").fill("Faraz Company")
     await page.locator("input[name=article]").fill("Article A")
     await page.locator("input[name=color]").fill(color)
-    await page.locator("input[name=size]").fill("40 meter")
+    await page.locator("input[name=length]").fill("1")
     await page.locator("input[name=cost]").fill("1000")
     await page.locator("input[name=rate]").fill("1500")
     await page.locator("details.more-details summary").click() // the optional fields are folded away by default
@@ -92,7 +92,7 @@ await step("purchase raises stock and creates a payable", async () => {
   await page.getByRole("button", { name: /New purchase/ }).first().click()
   await page.waitForSelector("text=Purchase details")
   await page.locator("select", { hasText: "Select supplier" }).selectOption({ label: "ABC Textile" })
-  await page.getByText("Article A Blue").first().click()
+  await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("20")
   await page.getByRole("button", { name: /Save purchase/ }).click()
   await page.waitForSelector("text=/Purchase PUR-00001 saved/")
@@ -100,7 +100,7 @@ await step("purchase raises stock and creates a payable", async () => {
 await step("sale with a partial payment", async () => {
   await nav("POS / Sales")
   await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
-  await page.getByText("Article A Blue").first().click()
+  await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("10")
   await page.getByRole("button", { name: "Partial", exact: true }).first().click()
   await page.getByLabel(/Amount received|Amount paid|Received/).first().fill("6000")
@@ -109,7 +109,7 @@ await step("sale with a partial payment", async () => {
 })
 await step("selling more than the stock is refused politely", async () => {
   await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
-  await page.getByText("Article A Blue").first().click()
+  await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("50")
   await page.getByRole("button", { name: /Save sale/ }).click()
   await page.waitForSelector("text=/exceeds available stock/")
@@ -147,7 +147,7 @@ await step("sales return against the invoice", async () => {
 await step("cancel a sale: stock and balance are reversed, the invoice is kept", async () => {
   await nav("POS / Sales")
   await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
-  await page.getByText("Article A Blue").first().click()
+  await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("1")
   await page.getByRole("button", { name: "Credit", exact: true }).first().click()
   await page.getByRole("button", { name: /Save sale/ }).click()
@@ -222,7 +222,7 @@ await step("one article in several colours is added in one go; an existing colou
     await page.getByRole("button", { name: "Add product" }).first().click()
     await page.locator("input[name=company]").fill("Gul Ahmed")
     await page.locator("input[name=article]").fill("Lawn 55")
-    await page.locator("input[name=size]").fill("40 meter")
+    await page.locator("input[name=length]").fill("1")
     await page.locator("input[name=cost]").fill("900")
     await page.locator("input[name=rate]").fill("1300")
     await page.getByRole("button", { name: /Add several colours/ }).click()

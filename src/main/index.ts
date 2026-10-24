@@ -177,6 +177,8 @@ function computeLicense(keyText: string | null): LicenseStatus {
 
   // The license decides the business type. A copy of the data from another kind of business is refused.
   const cfg = getConfig(db)
+  // Tests only (never a packaged build): run the old profit screens with the profit switch on.
+  if (!app.isPackaged && process.env.ERP_TEST_PROFIT === "1" && !cfg.flags.profit && cfg.profile === status.profile) setFlag(db, null, "profit", true)
   if (cfg.profile !== status.profile) {
     try {
       setProfile(db, null, status.profile!)

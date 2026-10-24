@@ -4,7 +4,7 @@ import { openDatabase } from "../src/main/db/connection"
 import { migrate } from "../src/main/db/migrate"
 import { migrations } from "../src/main/db/migrations"
 import { seedRoles } from "../src/main/services/auth"
-import { ensureConfig } from "../src/main/services/config"
+import { ensureConfig, setFlag } from "../src/main/services/config"
 import { seedDefaults } from "../src/main/services/defaults"
 import { ensureWalkInParty } from "../src/main/services/masterData"
 import { runReport } from "../src/main/services/reports"
@@ -18,6 +18,7 @@ async function world() {
   await migrate(db, migrations)
   seedRoles(db)
   ensureConfig(db, "cloth")
+  setFlag(db, null, "profit", true) // the cloth preset hides profit; these tests check the numbers behind it
   ensureWalkInParty(db)
   seedDefaults(db)
   const session = new Session()

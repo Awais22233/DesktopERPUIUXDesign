@@ -12,7 +12,7 @@ import { postCashClosing, postStockCount } from "./services/closing"
 import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment } from "./services/payments"
 import { postPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
-import { postSale, voidSale } from "./services/sales"
+import { postSale, voidSale, suggestInvoiceNo, renumberSale } from "./services/sales"
 import { bizDate, buildSnapshot } from "./services/snapshot"
 import { inventorySummary, listDocs, listMovements, listProducts } from "./services/lists"
 import { ledgerView } from "./services/ledger"
@@ -159,6 +159,7 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
         payments: payments(d, p.payments),
         notes: p.notes,
         overrideCreditLimit: p.overrideCreditLimit,
+        invoiceNo: p.invoiceNo,
       })
       return { id: res.invoiceNo, warnings: res.warnings }
     },
@@ -183,6 +184,12 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       })
       return { id: res.purchaseNo }
     },
+    "sale:lastRate": (p) => {
+      const row = db().prepare("SELECT l.rate FROM sale_lines l JOIN sales s ON s.id = l.sale_id WHERE s.party_id = ? AND l.variant_id = ? AND s.status = 'completed' ORDER BY s.id DESC LIMIT 1").get(idNumber(p.partyId), idNumber(p.productId)) as { rate: number } | undefined
+      return { rate: row ? row.rate / 100 : null }
+    },
+    "sale:suggestNo": () => ({ invoiceNo: suggestInvoiceNo(db()) }),
+    "sale:renumber": (p) => ({ invoiceNo: renumberSale(db(), actor(), docId(db(), "sales", p.id), p.invoiceNo) }),
     "sale:void": (p) => (voidSale(db(), actor(), docId(db(), "sales", p.id), p.reason), null),
     "purchase:void": (p) => (voidPurchase(db(), actor(), docId(db(), "purchases", p.id), p.reason), null),
 

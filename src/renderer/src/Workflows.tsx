@@ -120,6 +120,18 @@ export function SalesWorkspace({
   useEffect(() => {
     saveDraft(kind, cart.length ? { party, cart, method, paid, account, discount, invoice, invoiceDate } : undefined)
   }, [kind, party, cart, method, paid, account, discount, invoice, invoiceDate])
+  // the bill-number box starts with the last number plus one; the user types over it when the bill book says otherwise
+  async function suggestNo() {
+    try {
+      setInvoice((await api("sale:suggestNo")).invoiceNo)
+    } catch {
+      /* the box stays empty and the program numbers the bill itself */
+    }
+  }
+  useEffect(() => {
+    if (!purchase && !draft?.invoice) void suggestNo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const subtotal = cart.reduce((sum, i) => sum + i.qty * i.rate - i.discount, 0)
   const total = Math.max(0, subtotal - Number(discount))
   const received =
@@ -135,6 +147,12 @@ export function SalesWorkspace({
         : [...cur, { productId: p.id, name: p.name, color: p.color, size: p.size, qty: 1, rate: purchase ? p.purchasePrice : p.price, discount: 0 }],
     )
     setError("")
+    // a wholesaler quotes each customer a rate of their own: start from what this customer paid last time
+    if (!purchase && party) {
+      void api("sale:lastRate", { partyId: party, productId: p.id })
+        .then((r) => r.rate && setCart((cur) => cur.map((c) => (c.productId === p.id && c.rate === p.price ? { ...c, rate: r.rate! } : c))))
+        .catch(() => undefined)
+    }
   }
   function update(id: string, key: string, value: number | string) {
     setCart((cur) => cur.map((c) => (c.productId === id ? { ...c, [key]: value } : c)))
@@ -157,6 +175,7 @@ export function SalesWorkspace({
     if (!cart.length) return fail("Add at least one product to the invoice.")
     if (cart.some((c) => c.qty <= 0 || !Number.isInteger(c.qty) || c.rate < 0 || c.discount < 0 || c.discount > c.qty * c.rate))
       return fail(`Check quantities, rates and discounts. ${L.units} must be whole numbers.`)
+    if (!purchase && cart.some((c) => !(c.rate > 0))) return fail("Enter the rate for every item.")
     if (!purchase && cart.some((c) => known.current.has(c.productId) && c.qty > known.current.get(c.productId)!.stock))
       return fail("The quantity exceeds available stock. Please adjust the quantity.")
     const twoDecimals = (x: number) => Math.abs(x * 100 - Math.round(x * 100)) < 0.001
@@ -178,13 +197,14 @@ export function SalesWorkspace({
         method,
         lines: cart,
         account,
-        supplierInvoice: purchase ? invoice : undefined,
+        supplierInvoice: invoice.trim() || undefined,
         invoiceDiscount: Number(discount),
       },
       print,
     )
     if (!saved) return fail("Could not save. Nothing was changed; your invoice has been kept.")
     setInvoice("")
+    if (!purchase) void suggestNo()
     setCart([])
     setPaid("")
     setDiscount("0")
@@ -231,6 +251,13 @@ export function SalesWorkspace({
                 : "Search by product, company, article, variant, SKU or barcode"
             }
           >
+            {!purchase && (
+              <div className="purchase-meta">
+                <Field label="Bill number" hint="The number on your bill book. It must not repeat.">
+                  <Input aria-label="Bill number" value={invoice} onChange={(e) => setInvoice(e.target.value)} placeholder="Automatic" maxLength={30} />
+                </Field>
+              </div>
+            )}
             {purchase && (
               <div className="purchase-meta">
                 <Field label="Supplier invoice number">
@@ -418,7 +445,8 @@ export function SalesWorkspace({
                           aria-label={`Rate for ${c.name}`}
                           type="number"
                           min="0"
-                          value={c.rate}
+                          value={!purchase && !c.rate ? "" : c.rate}
+                          placeholder={purchase ? undefined : "Rate"}
                           onChange={(e) =>
                             update(c.productId, "rate", +e.target.value)
                           }
@@ -974,11 +1002,15 @@ export function EntryForm({
               </Field>
             </div>
             <div className="form-grid">
-              <Field label="Purchase price (Rs.)" required>
-                <Input name="cost" type="number" min="0" step="0.01" required defaultValue={prod?.purchasePrice} />
-              </Field>
-              <Field label="Sale price (Rs.)" required>
-                <Input name="rate" type="number" min="0" step="0.01" required defaultValue={prod?.rate} />
+              {isEnabled("profit") ? (
+                <Field label="Purchase price (Rs.)" required>
+                  <Input name="cost" type="number" min="0" step="0.01" required defaultValue={prod?.purchasePrice} />
+                </Field>
+              ) : (
+                <input type="hidden" name="cost" value={prod?.purchasePrice ?? 0} />
+              )}
+              <Field label="Sale price (Rs.)" hint="Optional. You can type the rate on every bill.">
+                <Input name="rate" type="number" min="0" step="0.01" defaultValue={prod?.rate} />
               </Field>
             </div>
             <div className="form-grid">
@@ -1285,6 +1317,7 @@ export function InvoicePreview({
   purchase = false,
   canVoid = false,
   onVoid,
+  onRenumber,
   defaultLayout = "A4 invoice",
   thermalWidth = "80",
 }: {
@@ -1294,6 +1327,8 @@ export function InvoicePreview({
   purchase?: boolean
   canVoid?: boolean
   onVoid?: (reason: string) => void | Promise<void>
+  /** Change the bill number (the number from the bill book). Resolves true when it was changed. */
+  onRenumber?: (invoiceNo: string) => Promise<boolean>
   /** From Settings > Printing. The user can still switch on the preview. */
   defaultLayout?: string
   thermalWidth?: string
@@ -1302,6 +1337,8 @@ export function InvoicePreview({
   const [voidBusy, setVoidBusy] = useState(false)
   const voidNow = useRef(false)
   const [reason, setReason] = useState("")
+  const [renumbering, setRenumbering] = useState(false)
+  const [newNo, setNewNo] = useState("")
   const [copied, setCopied] = useState<"" | "ok" | "fail">("")
   const [copying, setCopying] = useState(false)
   const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
@@ -1355,6 +1392,11 @@ export function InvoicePreview({
             Cancel invoice
           </Button>
         )}
+        {onRenumber && transaction && !purchase && !voiding && !renumbering && (
+          <Button variant="ghost" onClick={() => (setNewNo(transaction.id), setRenumbering(true))}>
+            Change bill number
+          </Button>
+        )}
         <Select
           aria-label="Print layout"
           value={layout}
@@ -1364,6 +1406,21 @@ export function InvoicePreview({
           <option>Thermal receipt</option>
         </Select>
       </div>
+      {renumbering && transaction && onRenumber && (
+        <div className="confirm-notice">
+          <strong>Change bill number {transaction.id}</strong>
+          <p>Type the number written on the paper bill. It must not be used by another bill.</p>
+          <Field label="New bill number" required>
+            <Input aria-label="New bill number" value={newNo} onChange={(e) => setNewNo(e.target.value)} maxLength={30} />
+          </Field>
+          <div className="modal-footer">
+            <Button onClick={() => setRenumbering(false)}>Keep {transaction.id}</Button>
+            <Button variant="primary" disabled={!newNo.trim() || newNo.trim() === transaction.id} onClick={() => void onRenumber(newNo.trim())}>
+              Save bill number
+            </Button>
+          </div>
+        </div>
+      )}
       {voiding && transaction && onVoid && (
         <div className="confirm-notice">
           <strong>Cancel {transaction.id}?</strong>
@@ -1660,6 +1717,7 @@ export function StockDetails({
   onEdit?: () => void
 }) {
   // Always show the live figures (they change after an adjustment) and the movement history one page at a time.
+  const { isEnabled } = useConfig()
   const { data: fresh } = useRemote("products:list", { ids: [shown.id], pageSize: 1 })
   const product = fresh?.rows[0] ?? shown
   const [movePage, setMovePage] = useState(1)
@@ -1684,18 +1742,22 @@ export function StockDetails({
         </div>
       </div>
       <div className="stock-price-row">
-        <div>
-          <span>Average cost {L.perUnit}</span>
-          <strong>{money(product.cost)}</strong>
-        </div>
+        {isEnabled("profit") && (
+          <div>
+            <span>Average cost {L.perUnit}</span>
+            <strong>{money(product.cost)}</strong>
+          </div>
+        )}
         <div>
           <span>Selling price {L.perUnit}</span>
           <strong>{money(product.rate)}</strong>
         </div>
-        <div>
-          <span>Stock value</span>
-          <strong>{money(product.stock * product.cost)}</strong>
-        </div>
+        {isEnabled("profit") && (
+          <div>
+            <span>Stock value</span>
+            <strong>{money(product.stock * product.cost)}</strong>
+          </div>
+        )}
       </div>
       <div className="panel-heading">
         <div>

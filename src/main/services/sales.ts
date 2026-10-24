@@ -30,6 +30,8 @@ export interface SaleInput {
   payments: PaymentInput[]
   notes?: string
   overrideCreditLimit?: boolean
+  /** The number from the shop's own bill book. Empty means: use the next automatic number. */
+  invoiceNo?: string
 }
 export interface SaleResult {
   saleId: number
@@ -43,6 +45,69 @@ export interface SaleResult {
 }
 
 /** First-expiry-first-out: which batches a sale draws from. Any quantity beyond known batches has no batch. */
+/** A hand-written bill number: any short visible text, e.g. "1042", "A-17", "17/B". */
+export function cleanInvoiceNo(raw: string | undefined): string | null {
+  const s = (raw ?? "").trim().replace(/\s+/g, " ")
+  if (s === "") return null
+  if (s.length > 30) throw new AppError("VALIDATION", "Bill number can be at most 30 characters")
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(s)) throw new AppError("VALIDATION", "Bill number has an invalid character")
+  return s
+}
+
+export function invoiceNoTaken(db: DB, no: string, exceptSaleId = 0): boolean {
+  return db.prepare("SELECT 1 FROM sales WHERE invoice_no = ? COLLATE NOCASE AND id != ?").get(no, exceptSaleId) !== undefined
+}
+
+/** The automatic number, skipping any that a typed number has already used. */
+function freeAutoNo(db: DB): string {
+  for (let i = 0; i < 100000; i++) {
+    const no = nextDocNo(db, "sale")
+    if (!invoiceNoTaken(db, no)) return no
+  }
+  throw new AppError("INTERNAL", "No free invoice number")
+}
+
+/** Suggestion for the bill-number box: the last bill number plus one (keeps prefix and zero padding). */
+export function suggestInvoiceNo(db: DB): string {
+  const last = db.prepare("SELECT invoice_no FROM sales ORDER BY id DESC LIMIT 1").get() as { invoice_no: string } | undefined
+  const m = last ? /^(.*?)(\d+)$/.exec(last.invoice_no) : null
+  if (m) {
+    let n = BigInt(m[2])
+    for (let i = 0; i < 1000; i++) {
+      n += 1n
+      const no = m[1] + String(n).padStart(m[2].length, "0")
+      if (!invoiceNoTaken(db, no)) return no
+    }
+  }
+  const row = db.prepare("SELECT prefix, next_number, padding FROM document_sequences WHERE kind = 'sale'").get() as { prefix: string; next_number: number; padding: number }
+  let n = row.next_number
+  for (let i = 0; i < 100000; i++, n++) {
+    const no = row.prefix + String(n).padStart(row.padding, "0")
+    if (!invoiceNoTaken(db, no)) return no
+  }
+  return ""
+}
+
+export function renumberSale(db: DB, actor: Actor, saleId: number, raw: string): string {
+  requirePermission(actor, "sale.void")
+  const no = cleanInvoiceNo(raw)
+  if (!no) throw new AppError("VALIDATION", "Type the bill number")
+  return tx(db, () => {
+    const sale = db.prepare("SELECT invoice_no FROM sales WHERE id = ?").get(saleId) as { invoice_no: string } | undefined
+    if (!sale) throw new AppError("NOT_FOUND", "Bill not found")
+    if (sale.invoice_no === no) return no
+    if (invoiceNoTaken(db, no, saleId)) throw new AppError("VALIDATION", `Bill number ${no} is already used`)
+    db.prepare("UPDATE sales SET invoice_no = ? WHERE id = ?").run(no, saleId)
+    // statements and cash books quote the number in their description
+    for (const table of ["ledger_entries", "account_entries"]) {
+      db.prepare(`UPDATE ${table} SET description = REPLACE(description, ?, ?) WHERE source_type = 'sale' AND source_id = ?`).run(sale.invoice_no, no, saleId)
+    }
+    audit(db, actor.userId, "sale.renumber", "sale", saleId, { from: sale.invoice_no, to: no })
+    return no
+  })
+}
+
 export function allocateBatches(db: DB, variantId: number, qty: number): { batchId: number | null; qty: number }[] {
   const batches = db
     .prepare(
@@ -94,7 +159,9 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
       if (!v.active) throw new AppError("INVALID_STATE", `Variant ${l.variantId} is inactive`)
       const standard = defaultRate(db, v)
       const rate = l.rate ?? standard
-      if (rate !== standard) requirePermission(actor, "sale.price_override")
+      if (rate <= 0) throw new AppError("VALIDATION", "Enter the rate for every item")
+      // with no fixed price on the product, the rate typed on the bill is the price, not an override
+      if (standard > 0 && rate !== standard) requirePermission(actor, "sale.price_override")
       const gross = lineAmount(rate, l.qty)
       const discount = l.discount ?? 0
       if (!Number.isSafeInteger(discount) || discount < 0 || discount > gross) throw new AppError("VALIDATION", "Invalid line discount")
@@ -137,7 +204,9 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
     }
 
     // ----- write -----
-    const invoiceNo = nextDocNo(db, "sale")
+    const typedNo = cleanInvoiceNo(input.invoiceNo)
+    if (typedNo && invoiceNoTaken(db, typedNo)) throw new AppError("VALIDATION", `Bill number ${typedNo} is already used. Check your bill book.`)
+    const invoiceNo = typedNo ?? freeAutoNo(db)
     const saleId = Number(
       db
         .prepare(

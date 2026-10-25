@@ -70,6 +70,8 @@ export interface ProfitSummary {
   writeOffs: number
   /** Supplier credit received on purchase returns / cancellations minus the stock value that left. */
   priceDifferences: number
+  /** Money that came in as "Other income" (not capital or loans). */
+  otherIncome: number
   netProfit: number
 }
 
@@ -96,10 +98,11 @@ export function profitSummary(db: DB, from: string, to: string): ProfitSummary {
     one("SELECT COALESCE(SUM(total),0) AS v FROM purchases WHERE status='void' AND voided_at >= ? AND voided_at < ?")
   const removed = -one("SELECT COALESCE(SUM(value),0) AS v FROM stock_movements WHERE type IN ('purchase_return','purchase_void') AND ts >= ? AND ts < ?")
   const priceDifferences = credited - removed
+  const otherIncome = one("SELECT COALESCE(SUM(amount),0) AS v FROM funds WHERE kind = 'income' AND ts >= ? AND ts < ?")
   const netSales = sales - returns
   const cogs = sold - back
   const gross = netSales - cogs
-  return { sales, returns, netSales, cogs, grossProfit: gross, expenses, writeOffs, priceDifferences, netProfit: gross - expenses - writeOffs + priceDifferences }
+  return { sales, returns, netSales, cogs, grossProfit: gross, expenses, writeOffs, priceDifferences, otherIncome, netProfit: gross - expenses - writeOffs + priceDifferences + otherIncome }
 }
 
 export interface BalanceSpan {

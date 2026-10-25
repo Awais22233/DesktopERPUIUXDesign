@@ -9,7 +9,7 @@ import { deleteColour, listColours, saveColour } from "./services/colours"
 import { addAccount, addMaster, saveParty, saveProduct, saveProductColors, setAccountActive } from "./services/catalog"
 import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
-import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment, renumberExpense, renumberPayment } from "./services/payments"
+import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordFund, recordReceipt, recordSupplierPayment, renumberExpense, renumberPayment } from "./services/payments"
 import { postPurchase, renumberPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale, suggestInvoiceNo, renumberSale } from "./services/sales"
@@ -226,6 +226,11 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
       if (!cat) throw new AppError("NOT_FOUND", "Expense category not found")
       recordExpense(d, actor(), { categoryId: cat.id, amount: paisa(p.amount), accountId: accountId(d, p.account), description: p.notes, ts: stamp(d, p.date) })
       return null
+    },
+    "fund:create": (p) => {
+      const d = db()
+      const id = recordFund(d, actor(), { kind: p.kind, amount: paisa(p.amount), accountId: accountId(d, p.account), from: p.from, reference: p.reference, notes: p.notes, ts: stamp(d, p.date) })
+      return { id: fmtId("FND", id) }
     },
     "transfer:create": (p) => {
       const d = db()

@@ -352,6 +352,14 @@ export default function App() {
       }
       return
     }
+    if (type === "fund") {
+      const res = await run(() => api("fund:create", { kind: data.kind as "capital" | "loan" | "income" | "other", amount: n("amount"), account: data.account!, from: data.from, reference: data.reference, date: data.date, notes: data.notes }))
+      if (res) {
+        closeModal()
+        notify(`Money added (${res.id}).`)
+      }
+      return
+    }
     if (type === "transfer") {
       if (await run(() => api("transfer:create", { from: data.from!, to: data.to!, amount: n("amount"), date: data.date, notes: data.notes }))) {
         closeModal()
@@ -1200,6 +1208,10 @@ export default function App() {
             <CheckCircle2 size={16} />
             Cash closing
           </Button>
+          <Button onClick={() => open("fund")} disabled={!session.can("ledger.adjust")}>
+            <ArrowDownLeft size={16} />
+            Add fund
+          </Button>
           <Button variant="primary" onClick={() => open("transfer")}>
             <ArrowLeftRight size={16} />
             Transfer funds
@@ -1572,6 +1584,7 @@ export default function App() {
         "Pay supplier",
         "Record a payment against a supplier balance.",
       ],
+      fund: ["Add fund", "Record money that came into an account: owner capital, a loan or other income."],
       expense: [
         "Add expense",
         "Record the cost and the account it was paid from.",

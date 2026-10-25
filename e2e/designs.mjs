@@ -44,7 +44,7 @@ await step("Settings: design gallery, number switch, dark mode", async () => {
   await shot("settings-printing")
   await page.getByRole("button", { name: /Save/ }).first().click()
   await page.getByRole("button", { name: "Business setup" }).click()
-  await page.getByRole("button", { name: "Dark" }).click()
+  await page.locator('[aria-label="Screen theme"] button').nth(1).click()
   must((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "dark not applied")
   await shot("dark-settings")
   for (const s of ["Dashboard", "POS / Sales", "Inventory", "Reports", "Recovery"]) { await nav(s); await shot("dark-" + s.replace(/\W/g, "")) }
@@ -55,7 +55,8 @@ await step("Settings: design gallery, number switch, dark mode", async () => {
   await page.keyboard.press("Escape")
   await nav("Settings")
   await page.getByRole("button", { name: "Business setup" }).click()
-  await page.getByRole("button", { name: "Light" }).click()
+  await page.locator('[aria-label="Screen theme"] button').nth(0).click()
+  must((await page.evaluate(() => document.documentElement.dataset.theme)) === "light", "light not applied")
 })
 await step("number change switched off hides the controls and the server refuses", async () => {
   await nav("Settings")

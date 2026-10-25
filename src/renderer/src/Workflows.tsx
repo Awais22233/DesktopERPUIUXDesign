@@ -611,24 +611,17 @@ export function SalesWorkspace({
         >
           <div className="checkout-body">
             <Field label={purchase ? "Supplier" : "Customer / party"} required>
-              <Select
+              <PartyPicker
+                label={purchase ? "Supplier" : "Customer / party"}
+                placeholder={`Select ${purchase ? "supplier" : "party"}…`}
+                parties={parties}
                 value={party}
-                onChange={(e) => {
-                  setParty(e.target.value)
+                extra={!purchase && walkInId ? [{ id: walkInId, label: "Walk-in customer" }] : []}
+                onChange={(id) => {
+                  setParty(id)
                   setError("")
                 }}
-              >
-                <option value="">
-                  Select {purchase ? "supplier" : "party"}…
-                </option>
-                {!purchase && walkInId && <option value={walkInId}>Walk-in customer</option>}
-                {parties.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                    {p.city && parties.filter((q) => q.name.toLowerCase() === p.name.toLowerCase()).length > 1 ? ` — ${p.city}` : ""}
-                  </option>
-                ))}
-              </Select>
+              />
               {onAddParty && (
                 <button type="button" className="gs-link" style={{ paddingLeft: 0 }} onClick={onAddParty}>
                   + New {purchase ? "supplier" : "customer"}
@@ -784,6 +777,125 @@ export function ProductPicker({ value, initial, onPick, filter }: { value: strin
   )
 }
 
+/** A party / supplier chooser you can type into: with hundreds of parties nobody scrolls, they type a few letters. */
+export function PartyPicker({
+  parties,
+  value,
+  onChange,
+  placeholder,
+  name,
+  extra = [],
+  label,
+}: {
+  parties: Party[]
+  value: string
+  onChange: (id: string) => void
+  placeholder: string
+  name?: string
+  /** options shown first, e.g. the walk-in customer */
+  extra?: { id: string; label: string }[]
+  label: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const [active, setActive] = useState(0)
+  const listRef = useRef<HTMLUListElement>(null)
+  const nameCount = new Map<string, number>()
+  for (const p of parties) nameCount.set(p.name.toLowerCase(), (nameCount.get(p.name.toLowerCase()) ?? 0) + 1)
+  const all = [
+    ...extra.map((e) => ({ id: e.id, label: e.label, hay: e.label.toLowerCase() })),
+    ...parties.map((p) => ({
+      id: p.id,
+      label: p.city && (nameCount.get(p.name.toLowerCase()) ?? 0) > 1 ? `${p.name} — ${p.city}` : p.name,
+      hay: `${p.name} ${p.city} ${p.phone} ${p.id}`.toLowerCase(),
+    })),
+  ]
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+  const matches = all.filter((o) => words.every((w) => o.hay.includes(w)))
+  const shown = matches.slice(0, 80)
+  const chosen = all.find((o) => o.id === value)
+  const listId = `party-list-${name ?? label.replace(/\W+/g, "")}`
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" })
+  }, [active, open])
+  const pick = (id: string) => {
+    onChange(id)
+    setOpen(false)
+    setQ("")
+  }
+  return (
+    <div className="party-picker">
+      {name && <input type="hidden" name={name} value={value} />}
+      <input
+        role="combobox"
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        autoComplete="off"
+        className={chosen && !open ? "has-value" : ""}
+        value={open ? q : chosen?.label ?? ""}
+        placeholder={open && chosen ? chosen.label : placeholder}
+        onFocus={() => {
+          setOpen(true)
+          setActive(0)
+        }}
+        onClick={() => setOpen(true)}
+        onChange={(e) => {
+          setQ(e.target.value)
+          setActive(0)
+          setOpen(true)
+        }}
+        onBlur={() => {
+          setOpen(false)
+          setQ("")
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault()
+            setOpen(true)
+            setActive((a) => Math.min(a + 1, shown.length - 1))
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault()
+            setActive((a) => Math.max(a - 1, 0))
+          } else if (e.key === "Enter" && open) {
+            e.preventDefault()
+            if (shown[active]) pick(shown[active].id)
+          } else if (e.key === "Escape" && open) {
+            e.stopPropagation()
+            setOpen(false)
+            setQ("")
+          }
+        }}
+      />
+      <ChevronDown size={15} className="party-picker-chevron" aria-hidden="true" />
+      {open && (
+        <ul id={listId} role="listbox" aria-label={label} ref={listRef}>
+          {value && (
+            <li role="option" aria-selected="false" className="party-clear" onMouseDown={(e) => (e.preventDefault(), pick(""))}>
+              {placeholder}
+            </li>
+          )}
+          {shown.map((o, i) => (
+            <li
+              key={o.id}
+              role="option"
+              aria-selected={i === active}
+              className={o.id === value ? "current" : ""}
+              onMouseDown={(e) => (e.preventDefault(), pick(o.id))}
+              onMouseEnter={() => setActive(i)}
+            >
+              {o.label}
+            </li>
+          ))}
+          {shown.length === 0 && <li className="party-empty">No match for “{q}”</li>}
+          {matches.length > shown.length && <li className="party-empty">{matches.length - shown.length} more, keep typing to narrow</li>}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function EntryForm({
   type,
   parties,
@@ -877,23 +989,17 @@ export function EntryForm({
         {financial && (
           <>
             <Field label={type === "recovery" ? "Customer / party" : "Supplier"} required>
-              <Select
+              <PartyPicker
+                label={type === "recovery" ? "Customer / party" : "Supplier"}
+                placeholder="Select a party…"
                 name="partyId"
+                parties={parties}
                 value={selected}
-                onChange={(e) => {
-                  setSelected(e.target.value)
+                onChange={(id) => {
+                  setSelected(id)
                   setError("")
                 }}
-                required
-              >
-                <option value="">Select a party…</option>
-                {parties.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                    {p.city && parties.filter((q) => q.name.toLowerCase() === p.name.toLowerCase()).length > 1 ? ` — ${p.city}` : ""}
-                  </option>
-                ))}
-              </Select>
+              />
             </Field>
             {party && (
               <div className="form-balance">

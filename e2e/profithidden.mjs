@@ -1,4 +1,4 @@
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 
 const { page, step, shot, nav, finish } = await launch("cloth", "Quiet Cloth House", { profitHidden: true })
 const call = (ch, req) => page.evaluate(([c, r]) => window.api.invoke(c, r), [ch, req])
@@ -49,7 +49,7 @@ await step("inventory shows no cost or stock value; product form has no purchase
 })
 await step("POS: rate must be typed; a typed bill number is used; a repeat is refused", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await page.getByText("Lawn Blue").first().click()
   await page.getByLabel(/Quantity of Lawn Blue/).fill("3")
   await page.getByRole("button", { name: /Save sale/ }).click()
@@ -61,7 +61,7 @@ await step("POS: rate must be typed; a typed bill number is used; a repeat is re
   await page.getByRole("button", { name: /Close|Done/ }).first().click().catch(() => {})
   // same number again
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await page.getByText("Lawn Blue").first().click()
   await page.getByLabel(/Rate for Lawn Blue/).fill("1500")
   await page.getByLabel("Bill number").fill("a-117")
@@ -75,7 +75,7 @@ await step("the next suggestion follows the last number; the customer's last rat
   await nav("POS / Sales")
   const v = await page.getByLabel("Bill number").inputValue()
   if (v !== "A-118") throw new Error("expected suggestion A-118, got " + v)
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await page.getByText("Lawn Blue").first().click()
   await page.waitForFunction(() => document.querySelector('input[aria-label^="Rate for Lawn"]')?.value === "1500")
 })

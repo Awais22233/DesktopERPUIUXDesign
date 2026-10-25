@@ -215,6 +215,13 @@ export function docRows(db: DB, kind: "sale" | "purchase", rows: Record<string, 
       kind,
       user: x.usr ?? "",
       walkIn: walkIns.has(x.pid),
+      partyAddress: x.paddr ?? undefined,
+      partyPhone: x.pphone ?? undefined,
+      partyCity: x.pcity ?? undefined,
+      bookedBy: x.booked_by ?? undefined,
+      bookedPhone: x.booked_phone ?? undefined,
+      recoveryBy: x.recovery_by ?? undefined,
+      recoveryPhone: x.recovery_phone ?? undefined,
       ...(balances.get(`${sale ? "sale" : "purchase"}:${x.id}`) ?? {}),
     } as Transaction
   })
@@ -240,12 +247,12 @@ export function listDocs(db: DB, q: DocQuery): DocPage {
   }
   const where = parts.length ? `WHERE ${parts.join(" AND ")}` : ""
   const from = sale
-    ? `FROM sales s JOIN parties p ON p.id = s.party_id LEFT JOIN users u ON u.id = s.user_id`
-    : `FROM purchases s JOIN suppliers p ON p.id = s.supplier_id LEFT JOIN users u ON u.id = s.user_id`
+    ? `FROM sales s JOIN parties p ON p.id = s.party_id LEFT JOIN cities ci ON ci.id = p.city_id LEFT JOIN users u ON u.id = s.user_id`
+    : `FROM purchases s JOIN suppliers p ON p.id = s.supplier_id LEFT JOIN cities ci ON ci.id = p.city_id LEFT JOIN users u ON u.id = s.user_id`
   const sum = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN s.status='completed' THEN s.total ELSE 0 END),0) AS total, COALESCE(SUM(CASE WHEN s.status='completed' THEN s.paid ELSE 0 END),0) AS paid ${from} ${where}`).get(...args) as { n: number; total: number; paid: number }
   const rows = db
     .prepare(
-      `SELECT s.id, ${noCol} AS no, s.ts, ${sale ? "s.party_id" : "s.supplier_id"} AS pid, p.name AS party, s.subtotal, s.discount, s.total, s.paid, s.status, ${sale ? "NULL" : "s.supplier_invoice_no"} AS sinv, u.display_name AS usr
+      `SELECT s.id, ${noCol} AS no, s.ts, ${sale ? "s.party_id" : "s.supplier_id"} AS pid, p.name AS party, s.subtotal, s.discount, s.total, s.paid, s.status, ${sale ? "NULL" : "s.supplier_invoice_no"} AS sinv, u.display_name AS usr, p.address AS paddr, p.phone AS pphone, ci.name AS pcity, ${sale ? "s.booked_by, s.booked_phone, s.recovery_by, s.recovery_phone" : "NULL AS booked_by, NULL AS booked_phone, NULL AS recovery_by, NULL AS recovery_phone"}
        ${from} ${where} ORDER BY s.ts DESC, s.id DESC LIMIT ? OFFSET ?`,
     )
     .all(...args, size, offset) as Record<string, any>[]

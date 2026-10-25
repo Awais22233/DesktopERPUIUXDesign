@@ -102,7 +102,7 @@ const emptyStore: Store = {
   returns: [],
   closings: [],
   dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, meters: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [], setup: { shopDetails: true, money: true, parties: true, products: true, firstSale: true } },
-  masters: { accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
+  masters: { staff: [], accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
 }
 const navGroups: {
   label: string
@@ -311,7 +311,7 @@ export default function App() {
     const res = await run(() =>
       purchase
         ? api("purchase:create", { supplierId: t.partyId!, supplierInvoice: t.supplierInvoice, lines, discount: t.invoiceDiscount, payments, date: t.date })
-        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments, invoiceNo: numbersOn ? t.supplierInvoice : undefined }),
+        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments, invoiceNo: numbersOn ? t.supplierInvoice : undefined, bookedBy: t.bookedById, recoveryBy: t.recoveryById }),
     )
     if (!res) return false
     const warning = (res as { warnings?: string[] }).warnings?.[0]
@@ -387,7 +387,7 @@ export default function App() {
     if (type === "party") {
       const kind = page === "Suppliers" || page === "New Purchase" || page === "Purchases" ? "supplier" : "customer"
       const res = await run(() =>
-        api("party:save", { kind, id: initial?.id, name: data.name!, city: data.city, phone: data.phone, whatsapp: data.whatsapp, area: data.area, address: data.address, notes: data.notes, limit: data.limit === undefined || data.limit === "" ? undefined : n("limit"), terms: data.terms === undefined || data.terms === "" ? null : n("terms"), active: data.active === undefined ? undefined : data.active === "Active", openingBalance: data.opening ? n("opening") : undefined }),
+        api("party:save", { kind, id: initial?.id, ...(kind === "customer" && data.salesman !== undefined ? { salesman: data.salesman, recovery: data.recovery } : {}), name: data.name!, city: data.city, phone: data.phone, whatsapp: data.whatsapp, area: data.area, address: data.address, notes: data.notes, limit: data.limit === undefined || data.limit === "" ? undefined : n("limit"), terms: data.terms === undefined || data.terms === "" ? null : n("terms"), active: data.active === undefined ? undefined : data.active === "Active", openingBalance: data.opening ? n("opening") : undefined }),
       )
       if (res) {
         closeModal()
@@ -1509,6 +1509,7 @@ export default function App() {
             onAddProduct={session.can("catalog.manage") ? () => open("product") : undefined}
             onAddParty={() => open("party")}
             numberEditable={numbersOn}
+            staff={store.masters.staff}
           />
         )
       case "New Purchase":
@@ -1618,6 +1619,7 @@ export default function App() {
               type === "supplier-payment" ? store.suppliers : store.parties
             }
             masters={store.masters}
+            forSupplier={page === "Suppliers" || page === "New Purchase" || page === "Purchases"}
             initial={data as Party | Product}
             onClose={closeModal}
             onSubmit={submitEntry}

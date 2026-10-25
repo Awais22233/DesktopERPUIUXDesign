@@ -12,6 +12,9 @@ export type Party = {
   address?: string
   notes?: string
   terms?: number
+  /** usual salesman / recovery person (ids like STF-0001) */
+  salesmanId?: string
+  recoveryId?: string
   balance: number
   limit: number
   status: string
@@ -72,8 +75,21 @@ export type Transaction = {
   balanceBefore?: number
   balanceAfter?: number
   walkIn?: boolean
+  /** the customer's (or supplier's) details as printed on the bill */
+  partyAddress?: string
+  partyPhone?: string
+  partyCity?: string
+  /** salesman who booked the order and recovery person, as they were when the bill was made */
+  bookedBy?: string
+  bookedPhone?: string
+  recoveryBy?: string
+  recoveryPhone?: string
+  /** chosen on the sale screen (staff ids) */
+  bookedById?: string
+  recoveryById?: string
 }
-export type Collection = { id: string; party: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string; balanceBefore?: number; balanceAfter?: number; supplier?: boolean }
+export type Staff = { id: string; name: string; phone: string; role: "salesman" | "recovery" | "both"; active: boolean }
+export type Collection = { id: string; party: string; partyAddress?: string; partyPhone?: string; partyCity?: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string; balanceBefore?: number; balanceAfter?: number; supplier?: boolean }
 export type Expense = { id: string; category: string; amount: number; account: string; date: string; notes: string; user: string }
 export type Movement = { id: string; date: string; type: string; quantity: number; productId: string; reason: string }
 export type AccountEntry = { id: string; date: string; account: string; description: string; incoming: number; outgoing: number; type: string }
@@ -86,6 +102,7 @@ export type Masters = {
   accounts: { id: number; name: string; type: "cash" | "bank"; balance: number; active: boolean }[]
   expenseCategories: string[]
   companies: string[]
+  staff: Staff[]
   categories: { name: string; sub: string[] }[]
   cities: string[]
   thanSizes: string[]
@@ -189,5 +206,6 @@ export const INVOICE_DESIGNS = [
   ["minimal", "Minimal", "Light and airy, hairlines only"],
   ["ledger", "Compact ledger", "Dense grid for long bills"],
   ["elegant", "Elegant", "Serif letters, double rule, framed total"],
+  ["estimate", "Estimate", "Typewriter style like a distributor's printed estimate"],
 ] as const
 export type InvoiceDesign = (typeof INVOICE_DESIGNS)[number][0]

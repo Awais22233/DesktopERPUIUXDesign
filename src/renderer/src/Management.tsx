@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Upload,
   Wallet,
+  Users,
 } from "lucide-react"
 import {
   Action,
@@ -320,7 +321,7 @@ export function Summary({
   )
 }
 
-const IMMEDIATE = ["Features", "Payment methods", "Cash / bank accounts", "Product categories", "Colours", "Expense categories", "Than sizes", "Invoice numbering"]
+const IMMEDIATE = ["Features", "Payment methods", "Cash / bank accounts", "Product categories", "Colours", "Expense categories", "Than sizes", "Invoice numbering", "Salesmen & recovery"]
 
 function ListEditor({ items, onAdd, onRemove, placeholder, empty }: { items: string[]; onAdd: (name: string) => unknown; onRemove?: (name: string) => unknown; placeholder: string; empty: string }) {
   const [value, setValue] = useState("")
@@ -374,6 +375,7 @@ export function Settings({
     "Expense categories",
     "Than sizes",
     "Invoice numbering",
+    "Salesmen & recovery",
     "Return rules",
     "Regional",
     "Security",
@@ -767,6 +769,8 @@ export function Settings({
                   </div>
                   <SequenceEditor sequences={masters.sequences} run={run} notify={notify} />
                 </>
+              ) : section === "Salesmen & recovery" ? (
+                <StaffEditor staff={masters.staff} run={run} notify={notify} />
               ) : section === "Return rules" ? (
                 <>
                   <Field label="Accept returns within (days)" hint="0 means there is no time limit. A person with the right permission can always override.">
@@ -878,6 +882,71 @@ function AccountsEditor({ accounts, run, notify }: { accounts: Masters["accounts
           </div>
           <Button type="button" variant="ghost" onClick={() => run(() => api("account:setActive", { id: a.id, active: !a.active })).then((r) => r !== undefined && notify(a.active ? "Account deactivated." : "Account activated."))}>
             {a.active ? "Deactivate" : "Activate"}
+          </Button>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function StaffEditor({ staff, run, notify }: { staff: Masters["staff"]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notify: (m: string) => void }) {
+  const [name, setName] = useState("")
+  const [phone, setPhone] = useState("")
+  const [role, setRole] = useState<"salesman" | "recovery" | "both">("salesman")
+  const ROLE: Record<string, string> = { salesman: "Salesman", recovery: "Recovery person", both: "Salesman and recovery" }
+  return (
+    <>
+      <div className="info-notice">
+        <Users size={17} />
+        The people who carry bills and collect money. Their name and phone are printed on the bill. Choose a usual salesman and recovery person on each party, and the sale screen fills them in.
+      </div>
+      <div className="form-grid">
+        <Field label="Name">
+          <Input aria-label="Staff name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. Imran Arain" />
+        </Field>
+        <Field label="Phone">
+          <Input aria-label="Staff phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={30} placeholder="0300-1234567" />
+        </Field>
+      </div>
+      <div className="list-editor-add">
+        <Select aria-label="Staff role" value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
+          {Object.entries(ROLE).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </Select>
+        <Button
+          type="button"
+          onClick={() =>
+            name.trim() &&
+            run(() => api("staff:save", { name: name.trim(), phone: phone.trim() || undefined, role })).then((r) => {
+              if (r !== undefined) {
+                setName("")
+                setPhone("")
+                notify("Added.")
+              }
+            })
+          }
+        >
+          <Plus size={15} />
+          Add
+        </Button>
+      </div>
+      {staff.length === 0 && <p className="muted">No one added yet.</p>}
+      {staff.map((x) => (
+        <div className="setting-toggle" key={x.id}>
+          <div>
+            <strong>
+              {x.name} {!x.active && <Badge>Off</Badge>}
+            </strong>
+            <span>
+              {ROLE[x.role]}
+              {x.phone ? ` · ${x.phone}` : ""}
+            </span>
+          </div>
+          <Button type="button" variant="ghost" onClick={() => run(() => api("staff:save", { id: x.id, name: x.name, phone: x.phone, role: x.role, active: !x.active })).then((r) => r !== undefined && notify(x.active ? "Switched off." : "Switched on."))}>
+            {x.active ? "Switch off" : "Switch on"}
           </Button>
         </div>
       ))}

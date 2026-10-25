@@ -69,6 +69,7 @@ export function bookChecks(db: DB): BookCheckResult {
     ...q("SELECT account_id id, -amount v FROM expenses"),
     ...q("SELECT from_account_id id, -amount v FROM account_transfers"),
     ...q("SELECT to_account_id id, amount v FROM account_transfers"),
+    ...q("SELECT account_id id, amount v FROM funds"),
     ...q("SELECT account_id id, -refunded v FROM sale_returns WHERE refunded > 0"),
     ...q("SELECT account_id id, refunded v FROM purchase_returns WHERE refunded > 0"),
   ])
@@ -112,7 +113,9 @@ export interface Identity {
   netAssets: number
   openingPosition: number
   netProfit: number
-  /** netAssets - openingPosition - netProfit. Must be exactly 0. */
+  /** Owner capital, loans and other money put in that is not profit. */
+  fundsNotProfit: number
+  /** netAssets - openingPosition - netProfit - fundsNotProfit. Must be exactly 0. */
   difference: number
 }
 
@@ -130,5 +133,6 @@ export function accountingIdentity(db: DB): Identity {
     n("SELECT COALESCE(SUM(credit)-SUM(debit),0) v FROM ledger_entries WHERE party_kind='supplier' AND kind IN ('opening','adjustment')") +
     n("SELECT COALESCE(SUM(value),0) v FROM stock_movements WHERE type='opening'")
   const netProfit = profitSummary(db, "0000", "9999").netProfit
-  return { cashAndBank, receivables, stockValue, payables, netAssets, openingPosition, netProfit, difference: netAssets - openingPosition - netProfit }
+  const fundsNotProfit = n("SELECT COALESCE(SUM(amount),0) v FROM funds WHERE kind <> 'income'")
+  return { cashAndBank, receivables, stockValue, payables, netAssets, openingPosition, netProfit, fundsNotProfit, difference: netAssets - openingPosition - netProfit - fundsNotProfit }
 }

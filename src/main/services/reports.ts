@@ -250,6 +250,7 @@ function runReportRaw(db: DB, q: ReportRequest): ReportResult {
         { name: "Operating expenses", amount: -r(p.expenses) },
         { name: "Stock write-offs (damage, shrinkage, count differences)", amount: -r(p.writeOffs) },
         { name: "Purchase price differences on returns / cancellations", amount: r(p.priceDifferences) },
+        ...(p.otherIncome ? [{ name: "Other income", amount: r(p.otherIncome) }] : []),
         { name: "Net profit", amount: r(p.netProfit) },
       ]
       return result([text("name", "Particulars"), money("amount", "Amount (PKR)")], rows, [{ label: "Net sales", value: r(p.netSales) }, { label: "Gross profit", value: r(p.grossProfit), tone: "green" }, { label: "Net profit", value: r(p.netProfit), tone: p.netProfit >= 0 ? "green" : "red" }], "Cost of goods sold uses the weighted-average cost recorded at the time of each sale. Transfers, recoveries and supplier payments are not part of profit.")

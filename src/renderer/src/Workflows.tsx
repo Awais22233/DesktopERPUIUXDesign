@@ -947,7 +947,7 @@ export function EntryForm({
       if (!party) return setError("Please select a party.")
       if (+amount <= 0 || +amount > Math.max(party.balance, 0)) return setError("The amount must be greater than zero and no more than the outstanding balance.")
     }
-    if ((type === "expense" || type === "transfer") && +data.amount <= 0) return setError("Enter an amount greater than zero.")
+    if ((type === "expense" || type === "transfer" || type === "fund") && +data.amount <= 0) return setError("Enter an amount greater than zero.")
     if (type === "transfer" && data.from === data.to) return setError("Choose two different accounts.")
     if (type === "adjust") {
       if (!product) return setError("Select a product.")
@@ -1051,6 +1051,36 @@ export function EntryForm({
             <Field label="Pay from account">
               <Select name="account">{accountOptions}</Select>
             </Field>
+          </>
+        )}
+        {type === "fund" && (
+          <>
+            <div className="info-notice">
+              <ArrowRight size={17} />
+              Use this when money comes into an account from somewhere other than a customer: your own capital, a loan, or other income.
+            </div>
+            <Field label="What is this money?" required>
+              <Select name="kind" defaultValue="capital">
+                <option value="capital">Owner capital (your own money put in)</option>
+                <option value="loan">Loan received</option>
+                <option value="income">Other income (counted in profit)</option>
+                <option value="other">Other</option>
+              </Select>
+            </Field>
+            <Field label="Amount" required>
+              <Input name="amount" type="number" min="0.01" step="0.01" required placeholder="Enter amount in Rs." />
+            </Field>
+            <Field label="Into account" required>
+              <Select name="account">{accountOptions}</Select>
+            </Field>
+            <div className="form-grid">
+              <Field label="Received from">
+                <Input name="from" maxLength={80} placeholder="e.g. Owner, Uncle, Bank" />
+              </Field>
+              <Field label="Reference">
+                <Input name="reference" maxLength={60} placeholder="Cheque / transaction no." />
+              </Field>
+            </div>
           </>
         )}
         {type === "transfer" && (

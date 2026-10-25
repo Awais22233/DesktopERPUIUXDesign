@@ -242,3 +242,39 @@ export function renumberExpense(db: DB, actor: Actor, expenseId: number, raw: st
     return no
   })
 }
+
+export const FUND_KINDS = { capital: "Owner capital", loan: "Loan received", income: "Other income", other: "Other" } as const
+export type FundKind = keyof typeof FUND_KINDS
+
+/** Money coming into a cash or bank account from somewhere other than a customer (owner capital, a loan, other income). */
+export function recordFund(
+  db: DB,
+  actor: Actor,
+  input: { kind: FundKind; amount: number; accountId: number; from?: string; reference?: string; notes?: string; ts?: string },
+): number {
+  requirePermission(actor, "ledger.adjust")
+  return tx(db, () => {
+    if (!(input.kind in FUND_KINDS)) throw new AppError("VALIDATION", "Choose what this money is")
+    if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new AppError("VALIDATION", "Enter an amount greater than zero")
+    checkAccount(db, input.accountId)
+    const ts = resolveTimestamp(db, actor, input.ts, "ledger.adjust")
+    const from = input.from?.trim().slice(0, 80) || null
+    const id = Number(
+      db
+        .prepare("INSERT INTO funds(ts, kind, amount, account_id, from_name, reference, notes, user_id) VALUES (?,?,?,?,?,?,?,?)")
+        .run(ts, input.kind, input.amount, input.accountId, from, input.reference?.trim().slice(0, 60) || null, input.notes?.trim().slice(0, 300) || null, actor.userId).lastInsertRowid,
+    )
+    addAccountEntry(db, {
+      ts,
+      accountId: input.accountId,
+      amount: input.amount,
+      kind: "fund_in",
+      sourceType: "fund",
+      sourceId: id,
+      description: `${FUND_KINDS[input.kind]}${from ? ` from ${from}` : ""}${input.reference?.trim() ? ` (${input.reference.trim().slice(0, 60)})` : ""}${input.notes?.trim() ? `: ${input.notes.trim().slice(0, 120)}` : ""}`,
+      userId: actor.userId,
+    })
+    audit(db, actor.userId, "fund.create", "fund", id, { kind: input.kind, amount: input.amount })
+    return id
+  })
+}

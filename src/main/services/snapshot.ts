@@ -22,6 +22,7 @@ const ENTRY_LABEL: Record<string, string> = {
   supplier_payment: "Supplier payment",
   purchase_payment: "Purchase",
   expense: "Expense",
+  fund_in: "Money in",
   transfer_in: "Transfer",
   transfer_out: "Transfer",
   void_reversal: "Void",
@@ -71,7 +72,7 @@ export function docLabel(db: DB, src: string | null, id: number | null): string 
     payment: "SELECT doc_no AS n FROM payments WHERE id = ?", sale_return: "SELECT return_no AS n FROM sale_returns WHERE id = ?",
     purchase_return: "SELECT return_no AS n FROM purchase_returns WHERE id = ?",
   }
-  let v = src === "expense" ? ((db.prepare("SELECT reference FROM expenses WHERE id = ?").get(id) as { reference: string | null } | undefined)?.reference || fmtId("EXP", id)) : src === "transfer" ? fmtId("TRF", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
+  let v = src === "expense" ? ((db.prepare("SELECT reference FROM expenses WHERE id = ?").get(id) as { reference: string | null } | undefined)?.reference || fmtId("EXP", id)) : src === "transfer" ? fmtId("TRF", id) : src === "fund" ? fmtId("FND", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
   if (!v && q[src]) v = ((db.prepare(q[src]).get(id) as { n: string } | undefined)?.n) ?? ""
   cache.set(key, v)
   return v

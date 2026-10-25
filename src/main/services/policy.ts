@@ -30,3 +30,8 @@ export function resolveTimestamp(db: DB, actor: Actor, requested: string | undef
 }
 
 export { can, requirePermission }
+
+/** The shop can switch off changing document numbers (a typed bill number, "Change number"). */
+export function assertNumberChangeAllowed(db: DB): void {
+  if (getSetting(db, "invoice.allow_number_change", "on") === "off") throw new AppError("FORBIDDEN", "Changing document numbers is turned off in Settings")
+}

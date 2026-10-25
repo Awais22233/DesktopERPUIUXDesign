@@ -303,6 +303,7 @@ export default function App() {
   const cashAccount = store.masters.accounts.find((a) => a.active && a.type === "cash")?.name ?? store.masters.accounts.find((a) => a.active)?.name ?? ""
   const methodFor = (account?: string) => (store.masters.accounts.find((a) => a.name === account)?.type === "bank" ? "Bank transfer" : "Cash")
 
+  const numbersOn = (store.masters.settings["invoice.allow_number_change"] ?? "on") !== "off"
   async function saveTransaction(t: Transaction, print: boolean, purchase = false): Promise<boolean> {
     const account = t.account || cashAccount
     const payments = t.paid > 0 ? [{ account, method: methodFor(account), amount: t.paid }] : []
@@ -310,7 +311,7 @@ export default function App() {
     const res = await run(() =>
       purchase
         ? api("purchase:create", { supplierId: t.partyId!, supplierInvoice: t.supplierInvoice, lines, discount: t.invoiceDiscount, payments, date: t.date })
-        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments, invoiceNo: t.supplierInvoice }),
+        : api("sale:create", { partyId: t.partyId!, lines, discount: t.invoiceDiscount, payments, invoiceNo: numbersOn ? t.supplierInvoice : undefined }),
     )
     if (!res) return false
     const warning = (res as { warnings?: string[] }).warnings?.[0]
@@ -1157,7 +1158,7 @@ export default function App() {
                 key: "actions",
                 label: "",
                 render: (e) =>
-                  session.can("ledger.adjust") ? (
+                  numbersOn && session.can("ledger.adjust") ? (
                     <Button variant="secondary" onClick={() => open("expense-no", e)}>
                       Change no.
                     </Button>
@@ -1494,6 +1495,7 @@ export default function App() {
             onHistory={() => navigate("Sales History")}
             onAddProduct={session.can("catalog.manage") ? () => open("product") : undefined}
             onAddParty={() => open("party")}
+            numberEditable={numbersOn}
           />
         )
       case "New Purchase":
@@ -1647,10 +1649,11 @@ export default function App() {
             onClose={closeModal}
             defaultLayout={store.masters.settings["invoice.layout"]}
             thermalWidth={store.masters.settings["print.thermal_width"]}
+            defaultDesign={store.masters.settings["invoice.design"]}
             purchase={(data as Transaction | undefined)?.kind === "purchase"}
             canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
             onRenumber={
-              type === "receipt" && session.can("ledger.adjust")
+              numbersOn && type === "receipt" && session.can("ledger.adjust")
                 ? async (no) => {
                     const c = data as Collection
                     const res = await run(async () => (await api("payment:renumber", { id: c.id, no })).no)
@@ -1660,7 +1663,7 @@ export default function App() {
                     }
                     return !!res
                   }
-                : type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")
+                : numbersOn && type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")
                 ? async (invoiceNo) => {
                     const res = await run(async () => ((data as Transaction).kind === "purchase" ? (await api("purchase:renumber", { id: (data as Transaction).id, purchaseNo: invoiceNo })).purchaseNo : (await api("sale:renumber", { id: (data as Transaction).id, invoiceNo })).invoiceNo))
                     if (res) {

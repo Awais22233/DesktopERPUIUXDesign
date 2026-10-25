@@ -5,7 +5,7 @@ import { can, requirePermission, type Actor } from "@core/permissions"
 import { audit, getSetting, nextDocNo, tx } from "../db/util"
 import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
-import { isFlagEnabled, resolveTimestamp } from "./policy"
+import { assertNumberChangeAllowed, isFlagEnabled, resolveTimestamp } from "./policy"
 import { customerBalance } from "./queries"
 import { perThan } from "./meters"
 
@@ -92,6 +92,7 @@ export function suggestInvoiceNo(db: DB): string {
 
 export function renumberSale(db: DB, actor: Actor, saleId: number, raw: string): string {
   requirePermission(actor, "sale.void")
+  assertNumberChangeAllowed(db)
   const no = cleanInvoiceNo(raw)
   if (!no) throw new AppError("VALIDATION", "Type the bill number")
   return tx(db, () => {
@@ -209,6 +210,7 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
 
     // ----- write -----
     const typedNo = cleanInvoiceNo(input.invoiceNo)
+    if (typedNo) assertNumberChangeAllowed(db)
     if (typedNo && invoiceNoTaken(db, typedNo)) throw new AppError("VALIDATION", `Bill number ${typedNo} is already used. Check your bill book.`)
     const invoiceNo = typedNo ?? freeAutoNo(db)
     const saleId = Number(

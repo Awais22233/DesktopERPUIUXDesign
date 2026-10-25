@@ -7,8 +7,9 @@ import { BusinessProvider } from './business'
 import { LicenseGate } from './Activation'
 import { AuthGate } from './Auth'
 import { ErrorBoundary } from './ErrorBoundary'
-import { applyTextSize, readTextSize } from './display'
+import { applyTextSize, applyTheme, readTextSize, readTheme } from './display'
 
+applyTheme(readTheme())
 applyTextSize(readTextSize()) // before anything is drawn, so the first screen already has the right size
 
 // The application only works inside the desktop shell, which provides the engine (window.api).

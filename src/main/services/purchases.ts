@@ -6,7 +6,7 @@ import { audit, nextDocNo, tx } from "../db/util"
 import { cleanInvoiceNo } from "./sales"
 import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
-import { resolveTimestamp } from "./policy"
+import { assertNumberChangeAllowed, resolveTimestamp } from "./policy"
 import type { PaymentInput } from "./sales"
 import { perThan, toTenths, variantForLength } from "./meters"
 
@@ -43,6 +43,7 @@ export function purchaseNoTaken(db: DB, no: string, exceptId = 0): boolean {
 
 export function renumberPurchase(db: DB, actor: Actor, purchaseId: number, raw: string): string {
   requirePermission(actor, "purchase.void")
+  assertNumberChangeAllowed(db)
   const no = cleanInvoiceNo(raw)
   if (!no) throw new AppError("VALIDATION", "Type the bill number")
   return tx(db, () => {

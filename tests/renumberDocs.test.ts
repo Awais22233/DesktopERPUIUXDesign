@@ -56,3 +56,24 @@ describe("changing the number of receipts, pay slips and expenses", () => {
     expect(msg(() => renumberPayment(c.db, { ...c.owner, permissions: new Set<string>() } as never, a.paymentId, "X-1"))).not.toBe("no error")
   })
 })
+
+describe("document numbers can be locked in Settings", () => {
+  it("refuses a typed bill number and every number change while the switch is off", async () => {
+    const { setSetting } = await import("../src/main/db/util")
+    const { postSale, renumberSale } = await import("../src/main/services/sales")
+    const a = rc()
+    postOpeningStockForSale(c)
+    setSetting(c.db, "invoice.allow_number_change", "off")
+    expect(msg(() => renumberPayment(c.db, c.owner, a.paymentId, "Z-1"))).toContain("FORBIDDEN")
+    expect(msg(() => postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: c.blue, qty: 1, rate: 100 }], payments: [], invoiceNo: "A-1" }))).toContain("FORBIDDEN")
+    // automatic numbers still work
+    const s = postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: c.blue, qty: 1, rate: 100 }], payments: [] })
+    expect(msg(() => renumberSale(c.db, c.owner, s.saleId, "A-2"))).toContain("FORBIDDEN")
+    setSetting(c.db, "invoice.allow_number_change", "on")
+    expect(renumberSale(c.db, c.owner, s.saleId, "A-2")).toBe("A-2")
+  })
+})
+function postOpeningStockForSale(ctx: Ctx) {
+  ctx.db.prepare("UPDATE settings SET value = 'on' WHERE key = 'stock.allow_negative'").run()
+  ctx.db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('stock.allow_negative','on')").run()
+}

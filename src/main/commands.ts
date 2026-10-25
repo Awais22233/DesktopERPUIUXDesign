@@ -105,6 +105,8 @@ const SETTING_RULES: Record<string, (v: string) => boolean> = {
   "than.sizes": (v) => jsonList(v, 200),
   "payment.methods": (v) => jsonList(v, 30) && JSON.parse(v).length > 0,
   "invoice.layout": (v) => v === "A4 invoice" || v === "Thermal receipt",
+  "invoice.design": (v) => ["modern", "classic", "minimal", "ledger", "elegant"].includes(v),
+  "invoice.allow_number_change": (v) => v === "on" || v === "off",
   "print.thermal_width": (v) => v === "58" || v === "80",
   "expiry.warning_days": (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 365,
 }

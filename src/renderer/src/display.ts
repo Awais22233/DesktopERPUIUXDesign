@@ -19,3 +19,24 @@ export function applyTextSize(size: TextSize): void {
     /* the choice then lasts until the program is closed */
   }
 }
+
+/** Light or dark screen. Also a choice for this computer; printed bills always stay black on white. */
+export type Theme = "light" | "dark"
+const THEME_KEY = "erp.theme"
+
+export function readTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light"
+  } catch {
+    return "light"
+  }
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    /* the choice then lasts until the program is closed */
+  }
+}

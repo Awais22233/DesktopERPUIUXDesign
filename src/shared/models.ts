@@ -176,6 +176,18 @@ export const SETTING_KEYS = [
   "than.sizes",
   "payment.methods",
   "invoice.layout",
+  "invoice.design",
+  "invoice.allow_number_change",
   "print.thermal_width",
   "expiry.warning_days",
 ] as const
+
+/** The looks an A4 bill can have. The first is the original look. */
+export const INVOICE_DESIGNS = [
+  ["modern", "Modern", "Coloured document label, clean lines"],
+  ["classic", "Classic", "Centered heading, full box and grid lines"],
+  ["minimal", "Minimal", "Light and airy, hairlines only"],
+  ["ledger", "Compact ledger", "Dense grid for long bills"],
+  ["elegant", "Elegant", "Serif letters, double rule, framed total"],
+] as const
+export type InvoiceDesign = (typeof INVOICE_DESIGNS)[number][0]

@@ -3,7 +3,7 @@ import { AppError } from "@core/errors"
 import { requirePermission, type Actor } from "@core/permissions"
 import { audit, getSetting, nextDocNo, tx } from "../db/util"
 import { addAccountEntry, addLedgerEntry } from "./posting"
-import { assertFlag, resolveTimestamp } from "./policy"
+import { assertFlag, assertNumberChangeAllowed, resolveTimestamp } from "./policy"
 import { postMovement } from "./stock"
 import { customerBalance, supplierBalance } from "./queries"
 import { cleanInvoiceNo } from "./sales"
@@ -196,6 +196,7 @@ function freePaymentNo(db: DB, kind: "receipt" | "payment"): string {
 /** Changes only the number written on a receipt or supplier pay slip. Amounts and balances stay as they are. */
 export function renumberPayment(db: DB, actor: Actor, paymentId: number, raw: string): string {
   requirePermission(actor, "ledger.adjust")
+  assertNumberChangeAllowed(db)
   const no = cleanInvoiceNo(raw)
   if (!no) throw new AppError("VALIDATION", "Type the number")
   return tx(db, () => {
@@ -227,6 +228,7 @@ export function expenseNoTaken(db: DB, no: string, exceptId = 0): boolean {
 
 export function renumberExpense(db: DB, actor: Actor, expenseId: number, raw: string): string {
   requirePermission(actor, "ledger.adjust")
+  assertNumberChangeAllowed(db)
   const no = cleanInvoiceNo(raw)
   if (!no) throw new AppError("VALIDATION", "Type the number")
   return tx(db, () => {

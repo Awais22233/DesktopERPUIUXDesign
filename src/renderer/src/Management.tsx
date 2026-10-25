@@ -1,13 +1,13 @@
 import { useConfig, profiles, featureMeta } from "./config"
 import { BrandMark, useBusiness, type Business } from "./business"
-import { applyTextSize, readTextSize, type TextSize } from "./display"
+import { applyTextSize, applyTheme, readTextSize, readTheme, type TextSize, type Theme } from "./display"
 import { api } from "./backend"
 import type { BackupInfo, BackupStatus, BackupSummary } from "@shared/ipc"
 import { PROFIT_REPORTS } from "@shared/profiles"
-import type { Masters, ReportResult, ReturnRow } from "@shared/models"
+import { INVOICE_DESIGNS, type Masters, type ReportResult, type ReturnRow } from "@shared/models"
 import { useEffect, useRef, useState } from "react"
 import { useDebounced, useRemote } from "./remote"
-import { ProductPicker } from "./Workflows"
+import { DesignSample, ProductPicker } from "./Workflows"
 import { ColoursEditor } from "./colours"
 import {
   ArrowDownLeft,
@@ -383,8 +383,10 @@ export function Settings({
   const [logoDraft, setLogoDraft] = useState(business.logo)
   const [accentDraft, setAccentDraft] = useState<Business["accent"]>(business.accent)
   const [textSize, setTextSize] = useState<TextSize>(readTextSize)
+  const [theme, setTheme] = useState<Theme>(readTheme)
   const logoInput = useRef<HTMLInputElement>(null)
   const st = masters.settings
+  const [design, setDesign] = useState<string>(() => st["invoice.design"] ?? "modern")
   const get = (k: string, d: string) => st[k] ?? d
   const put = (key: string, value: string, message = "Saved.") => run(() => api("settings:set", { key, value })).then((r) => r !== undefined && notify(message))
   const pickLogo = (file: File | undefined) => {
@@ -431,7 +433,7 @@ export function Settings({
       section === "Sales & credit"
         ? [["credit.limit_mode", text("mode")], ["sales.max_discount_percent", text("discount") || "100"], ["stock.allow_negative", f.get("negative") ? "on" : "off"], ["receipts.allow_overpayment", f.get("overpay") ? "on" : "off"]]
         : section === "Printing"
-          ? [["invoice.layout", text("layout")], ["print.thermal_width", text("width")]]
+          ? [["invoice.layout", text("layout")], ["invoice.design", design], ["print.thermal_width", text("width")]]
           : section === "Return rules"
             ? [["returns.window_days", text("days") || "0"]]
             : section === "Regional"
@@ -543,6 +545,27 @@ export function Settings({
                     </div>
                     <small className="muted">Changes the buttons and highlights on screen. Printed invoices stay black and white. Press Save to keep it.</small>
                   </Field>
+                  <Field label="Screen theme on this computer">
+                    <div className="accent-picker" role="group" aria-label="Screen theme">
+                      {(["light", "dark"] as Theme[]).map((t) => (
+                        <button
+                          type="button"
+                          key={t}
+                          className="accent-option"
+                          style={{ "--sw": t === "dark" ? "#1b2233" : "#f6f7fa" } as React.CSSProperties}
+                          aria-pressed={theme === t}
+                          onClick={() => {
+                            setTheme(t)
+                            applyTheme(t)
+                          }}
+                        >
+                          <span className="swatch" />
+                          {t === "dark" ? "Dark" : "Light"}
+                        </button>
+                      ))}
+                    </div>
+                    <small className="muted">Applies at once and is remembered on this computer only. Printed bills always stay black on white.</small>
+                  </Field>
                   <Field label="Text size on this computer">
                     <div className="accent-picker" role="group" aria-label="Text size">
                       {TEXT_CHOICES.map(([id, label]) => (
@@ -628,6 +651,20 @@ export function Settings({
                       <option>A4 invoice</option>
                       <option>Thermal receipt</option>
                     </Select>
+                  </Field>
+                  <Field label="A4 bill design" hint="Pick the look of the A4 bill. Press Save to keep it. Thermal receipts have one fixed look.">
+                    <input type="hidden" name="design" value={design} />
+                    <div className="design-gallery" role="radiogroup" aria-label="A4 bill design">
+                      {INVOICE_DESIGNS.map(([id, label, note]) => (
+                        <button type="button" key={id} role="radio" aria-checked={design === id} className="design-option" onClick={() => setDesign(id)}>
+                          <div className="design-thumb">
+                            <DesignSample design={id} />
+                          </div>
+                          <strong>{label}</strong>
+                          <span>{note}</span>
+                        </button>
+                      ))}
+                    </div>
                   </Field>
                   <Field label="Thermal paper width">
                     <Select name="width" defaultValue={get("print.thermal_width", "80")}>
@@ -715,7 +752,21 @@ export function Settings({
                   />
                 </>
               ) : section === "Invoice numbering" ? (
-                <SequenceEditor sequences={masters.sequences} run={run} notify={notify} />
+                <>
+                  <div className="setting-toggle">
+                    <div>
+                      <strong>Allow changing document numbers</strong>
+                      <span>When on, you can type the bill-book number on a sale and use "Change number" on bills, receipts, pay slips and expenses. Turn off to lock numbers to automatic.</span>
+                    </div>
+                    <Input
+                      type="checkbox"
+                      aria-label="Allow changing document numbers"
+                      defaultChecked={get("invoice.allow_number_change", "on") === "on"}
+                      onChange={(e) => put("invoice.allow_number_change", e.target.checked ? "on" : "off", e.target.checked ? "Document numbers can be changed." : "Document numbers are now automatic only.")}
+                    />
+                  </div>
+                  <SequenceEditor sequences={masters.sequences} run={run} notify={notify} />
+                </>
               ) : section === "Return rules" ? (
                 <>
                   <Field label="Accept returns within (days)" hint="0 means there is no time limit. A person with the right permission can always override.">

@@ -52,7 +52,7 @@ function LengthChips({ items, purchase, onPick }: { items: Product[]; purchase: 
   )
 }
 import { billToPng, copyPng } from "./billImage"
-import type { LedgerView } from "@shared/models"
+import { INVOICE_DESIGNS, type LedgerView } from "@shared/models"
 import type { Masters } from "@shared/models"
 import {
   Pencil,
@@ -110,7 +110,10 @@ export function SalesWorkspace({
   onHistory,
   onAddProduct,
   onAddParty,
+  numberEditable = true,
 }: {
+  /** Settings > Invoice numbering: when off the bill-number box is not shown. */
+  numberEditable?: boolean
   /** Opens the "Add product" / "Add party" forms so a first sale never needs a trip to another screen. */
   onAddProduct?: () => void
   onAddParty?: () => void
@@ -302,7 +305,7 @@ export function SalesWorkspace({
                 : "Search by product, company, article, variant, SKU or barcode"
             }
           >
-            {!purchase && (
+            {!purchase && numberEditable && (
               <div className="purchase-meta">
                 <Field label="Bill number" hint="The number on your bill book. It must not repeat.">
                   <Input aria-label="Bill number" value={invoice} onChange={(e) => setInvoice(e.target.value)} placeholder="Automatic" maxLength={30} />
@@ -1453,7 +1456,10 @@ export function InvoicePreview({
   onRenumber,
   defaultLayout = "A4 invoice",
   thermalWidth = "80",
+  defaultDesign = "modern",
 }: {
+  /** From Settings > Printing: the look of the A4 bill. */
+  defaultDesign?: string
   transaction?: Transaction
   collection?: Collection
   onClose: () => void
@@ -1475,6 +1481,7 @@ export function InvoicePreview({
   const [copied, setCopied] = useState<"" | "ok" | "fail">("")
   const [copying, setCopying] = useState(false)
   const [layout, setLayout] = useState(defaultLayout === "Thermal receipt" ? "Thermal receipt" : "A4 invoice")
+  const [design, setDesign] = useState<string>(INVOICE_DESIGNS.some((d) => d[0] === defaultDesign) ? defaultDesign : "modern")
   const { business } = useBusiness()
   const receipt = !!collection
   // A thermal roll has no fixed length: the page is exactly as tall as the receipt, so no paper is wasted.
@@ -1540,6 +1547,15 @@ export function InvoicePreview({
           <option>A4 invoice</option>
           <option>Thermal receipt</option>
         </Select>
+        {layout === "A4 invoice" && (
+          <Select aria-label="Bill design" value={design} onChange={(e) => setDesign(e.target.value)}>
+            {INVOICE_DESIGNS.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
       {renumbering && doc && onRenumber && (
         <div className="confirm-notice">
@@ -1591,7 +1607,7 @@ export function InvoicePreview({
       <div
         ref={paperRef}
         className={`invoice-paper ${
-          layout === "Thermal receipt" ? `thermal ${thermalWidth === "58" ? "w58" : "w80"}` : ""
+          layout === "Thermal receipt" ? `thermal ${thermalWidth === "58" ? "w58" : "w80"}` : `inv-${design}`
         }`}
       >
         <div className="invoice-head">
@@ -2022,5 +2038,59 @@ export function StockDetails({
         Stock is tracked separately for each item and variant.
       </div>
     </>
+  )
+}
+
+/** A small, real-looking sample bill used to choose the design in Settings. It uses the same classes as a real bill. */
+export function DesignSample({ design }: { design: string }) {
+  return (
+    <div className={`invoice-paper design-sample inv-${design}`} aria-hidden="true">
+      <div className="invoice-head">
+        <div className="invoice-company">
+          <div className="invoice-company-text">
+            <h2>Your Shop</h2>
+            <p className="invoice-address">Main Bazaar, City</p>
+          </div>
+        </div>
+        <div className="invoice-doc">
+          <h3>SALES INVOICE</h3>
+          <strong className="invoice-no">INV-00123</strong>
+          <span className="invoice-date">25 Oct 2026</span>
+        </div>
+      </div>
+      <div className="invoice-meta">
+        <div>
+          <span>Bill to</span>
+          <strong>Ali Traders</strong>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th className="align-right">Qty</th>
+            <th className="align-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Lawn Blue</td>
+            <td className="align-right">12</td>
+            <td className="align-right">86,400</td>
+          </tr>
+          <tr>
+            <td>Cotton White</td>
+            <td className="align-right">5</td>
+            <td className="align-right">21,000</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="invoice-totals">
+        <div className="grand">
+          <span>Bill total</span>
+          <strong>107,400</strong>
+        </div>
+      </div>
+    </div>
   )
 }

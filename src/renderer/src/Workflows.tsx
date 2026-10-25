@@ -1527,9 +1527,9 @@ export function InvoicePreview({
             Cancel invoice
           </Button>
         )}
-        {onRenumber && transaction && !voiding && !renumbering && (
-          <Button variant="ghost" onClick={() => (setNewNo(transaction.id), setRenumbering(true))}>
-            Change bill number
+        {onRenumber && doc && !voiding && !renumbering && (
+          <Button variant="ghost" onClick={() => (setNewNo(doc.id), setRenumbering(true))}>
+            {receipt ? "Change number" : "Change bill number"}
           </Button>
         )}
         <Select
@@ -1541,20 +1541,20 @@ export function InvoicePreview({
           <option>Thermal receipt</option>
         </Select>
       </div>
-      {renumbering && transaction && onRenumber && (
+      {renumbering && doc && onRenumber && (
         <div className="confirm-notice">
-          <strong>Change bill number {transaction.id}</strong>
-          <p>Type the number written on the paper bill. It must not be used by another bill.</p>
-          <Field label="New bill number" required>
+          <strong>Change number {doc.id}</strong>
+          <p>Type the number written on the paper slip or bill. It must not be used by another one.</p>
+          <Field label="New number" required>
             <Input aria-label="New bill number" value={newNo} onChange={(e) => setNewNo(e.target.value)} maxLength={30} />
           </Field>
           <div className="modal-footer">
-            <Button onClick={() => setRenumbering(false)}>Keep {transaction.id}</Button>
-            <Button variant="primary" disabled={!newNo.trim() || newNo.trim() === transaction.id} onClick={async () => {
+            <Button onClick={() => setRenumbering(false)}>Keep {doc.id}</Button>
+            <Button variant="primary" disabled={!newNo.trim() || newNo.trim() === doc.id} onClick={async () => {
                 if (await onRenumber(newNo.trim())) setRenumbering(false)
               }}
             >
-              Save bill number
+              Save number
             </Button>
           </div>
         </div>
@@ -1629,7 +1629,7 @@ export function InvoicePreview({
         {transaction?.status === "void" && <div className="invoice-void">CANCELLED — this invoice is void</div>}
         <div className="invoice-meta">
           <div>
-            <span>{receipt ? "Received from" : purchase ? "Supplier" : "Bill to"}</span>
+            <span>{receipt ? (collection?.supplier ? "Paid to" : "Received from") : purchase ? "Supplier" : "Bill to"}</span>
             <strong>{transaction?.party || collection?.party}</strong>
           </div>
           <div className="invoice-meta-right">
@@ -1639,7 +1639,7 @@ export function InvoicePreview({
         </div>
         {receipt ? (
           <div className="receipt-amount">
-            <span>Amount received</span>
+            <span>{collection!.supplier ? "Amount paid" : "Amount received"}</span>
             <strong>{money(collection!.amount)}</strong>
             <p>
               {collection!.method} · {collection!.account}

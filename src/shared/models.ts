@@ -73,7 +73,7 @@ export type Transaction = {
   balanceAfter?: number
   walkIn?: boolean
 }
-export type Collection = { id: string; party: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string; balanceBefore?: number; balanceAfter?: number }
+export type Collection = { id: string; party: string; amount: number; method: string; account: string; date: string; time: string; user: string; notes: string; balanceBefore?: number; balanceAfter?: number; supplier?: boolean }
 export type Expense = { id: string; category: string; amount: number; account: string; date: string; notes: string; user: string }
 export type Movement = { id: string; date: string; type: string; quantity: number; productId: string; reason: string }
 export type AccountEntry = { id: string; date: string; account: string; description: string; incoming: number; outgoing: number; type: string }
@@ -102,6 +102,7 @@ export type Snapshot = {
   parties: Party[]
   suppliers: Party[]
   collections: Collection[]
+  supplierPayments: Collection[]
   expenses: Expense[]
   accounts: Record<string, number>
   entries: AccountEntry[]

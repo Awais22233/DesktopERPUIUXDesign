@@ -71,7 +71,7 @@ export function docLabel(db: DB, src: string | null, id: number | null): string 
     payment: "SELECT doc_no AS n FROM payments WHERE id = ?", sale_return: "SELECT return_no AS n FROM sale_returns WHERE id = ?",
     purchase_return: "SELECT return_no AS n FROM purchase_returns WHERE id = ?",
   }
-  let v = src === "expense" ? fmtId("EXP", id) : src === "transfer" ? fmtId("TRF", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
+  let v = src === "expense" ? ((db.prepare("SELECT reference FROM expenses WHERE id = ?").get(id) as { reference: string | null } | undefined)?.reference || fmtId("EXP", id)) : src === "transfer" ? fmtId("TRF", id) : src === "stock_count" ? fmtId("CNT", id) : src === "adjustment" ? fmtId("ADJ", id) : src === "opening" ? fmtId("OPEN", id) : ""
   if (!v && q[src]) v = ((db.prepare(q[src]).get(id) as { n: string } | undefined)?.n) ?? ""
   cache.set(key, v)
   return v
@@ -140,11 +140,16 @@ export function buildSnapshot(db: DB): Snapshot {
       WHERE p.kind = 'customer_receipt' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
     id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "", pay_id: x.pay_id as number, party_id: x.party_id as number,
   }))
+  const supplierPayments = (db.prepare(`SELECT p.doc_no, p.ts, p.amount, p.method, p.notes, su.name AS party, a.name AS account, u.display_name AS usr
+      FROM payments p JOIN suppliers su ON su.id = p.party_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.kind = 'supplier_payment' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
+    id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.usr || "", notes: x.notes ?? "", supplier: true,
+  }))
   const collectionBalances = balancesAround(db, "customer", collectionRows.map((x) => ({ partyId: x.party_id, sourceType: "payment", sourceId: x.pay_id })))
   const collections = collectionRows.map(({ pay_id, party_id, ...c }) => ({ ...c, ...(collectionBalances.get(`payment:${pay_id}`) ?? {}) }))
 
-  const expenses = (db.prepare(`SELECT e.id, e.ts, e.amount, e.description, c.name AS category, a.name AS account, u.display_name AS usr FROM expenses e JOIN expense_categories c ON c.id = e.category_id JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.user_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
-    id: fmtId("EXP", x.id), category: x.category, amount: r(x.amount), account: x.account, date: bizDate(x.ts, off), notes: x.description ?? "", user: x.usr ?? "",
+  const expenses = (db.prepare(`SELECT e.id, e.reference, e.ts, e.amount, e.description, c.name AS category, a.name AS account, u.display_name AS usr FROM expenses e JOIN expense_categories c ON c.id = e.category_id JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.user_id WHERE e.ts >= ? ORDER BY e.ts DESC, e.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
+    id: x.reference || fmtId("EXP", x.id), category: x.category, amount: r(x.amount), account: x.account, date: bizDate(x.ts, off), notes: x.description ?? "", user: x.usr ?? "",
   }))
 
   const label = (src: string | null, id: number | null) => docLabel(db, src, id)
@@ -179,7 +184,7 @@ export function buildSnapshot(db: DB): Snapshot {
 
   return {
     today, historyFrom, walkInId: walk ? fmtId("PTY", walk.id) : "",
-    parties, suppliers, collections, expenses, accounts, entries, users, audits, returns, closings,
+    parties, suppliers, collections, supplierPayments, expenses, accounts, entries, users, audits, returns, closings,
     masters: buildMasters(db),
     dashboard: buildDashboard(db, today),
   }

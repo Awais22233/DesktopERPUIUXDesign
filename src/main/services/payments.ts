@@ -6,6 +6,7 @@ import { addAccountEntry, addLedgerEntry } from "./posting"
 import { assertFlag, resolveTimestamp } from "./policy"
 import { postMovement } from "./stock"
 import { customerBalance, supplierBalance } from "./queries"
+import { cleanInvoiceNo } from "./sales"
 
 export interface ReceiptInput {
   partyId: number
@@ -37,7 +38,7 @@ export function recordReceipt(db: DB, actor: Actor, input: ReceiptInput): { paym
       throw new AppError("VALIDATION", "Collection cannot exceed the outstanding balance")
     }
     const ts = resolveTimestamp(db, actor, input.ts, "sale.backdate")
-    const docNo = nextDocNo(db, "receipt")
+    const docNo = freePaymentNo(db, "receipt")
     const paymentId = Number(
       db
         .prepare(
@@ -63,7 +64,7 @@ export function recordSupplierPayment(db: DB, actor: Actor, input: ReceiptInput)
     const before = supplierBalance(db, sup.id)
     if (input.amount > Math.max(before, 0)) throw new AppError("VALIDATION", "Payment cannot exceed the supplier payable")
     const ts = resolveTimestamp(db, actor, input.ts, "sale.backdate")
-    const docNo = nextDocNo(db, "payment")
+    const docNo = freePaymentNo(db, "payment")
     const paymentId = Number(
       db
         .prepare(
@@ -176,5 +177,66 @@ export function adjustStock(db: DB, actor: Actor, input: { variantId: number; qt
     const avg = (db.prepare("SELECT avg_cost FROM stock_levels WHERE variant_id = ?").get(input.variantId) as { avg_cost: number } | undefined)?.avg_cost ?? 0
     postMovement(db, { variantId: input.variantId, qtyDelta: input.qtyDelta, unitCost: increase ? avg : undefined, type, sourceType: "adjustment", note: input.reason, userId: actor.userId, ts: new Date().toISOString() })
     audit(db, actor.userId, "stock.adjust", "variant", input.variantId, { qtyDelta: input.qtyDelta, reason: input.reason })
+  })
+}
+
+export function paymentNoTaken(db: DB, no: string, exceptId = 0): boolean {
+  return db.prepare("SELECT 1 FROM payments WHERE doc_no = ? COLLATE NOCASE AND id != ?").get(no, exceptId) !== undefined
+}
+
+/** The automatic number, skipping any that a typed number has already used. */
+function freePaymentNo(db: DB, kind: "receipt" | "payment"): string {
+  for (let i = 0; i < 100000; i++) {
+    const no = nextDocNo(db, kind)
+    if (!paymentNoTaken(db, no)) return no
+  }
+  throw new AppError("INTERNAL", "No free number")
+}
+
+/** Changes only the number written on a receipt or supplier pay slip. Amounts and balances stay as they are. */
+export function renumberPayment(db: DB, actor: Actor, paymentId: number, raw: string): string {
+  requirePermission(actor, "ledger.adjust")
+  const no = cleanInvoiceNo(raw)
+  if (!no) throw new AppError("VALIDATION", "Type the number")
+  return tx(db, () => {
+    const p = db.prepare("SELECT doc_no FROM payments WHERE id = ?").get(paymentId) as { doc_no: string } | undefined
+    if (!p) throw new AppError("NOT_FOUND", "Payment not found")
+    if (p.doc_no === no) return no
+    if (paymentNoTaken(db, no, paymentId)) throw new AppError("VALIDATION", `Number ${no} is already used`)
+    db.prepare("UPDATE payments SET doc_no = ? WHERE id = ?").run(no, paymentId)
+    for (const table of ["ledger_entries", "account_entries"]) {
+      db.prepare(`UPDATE ${table} SET description = REPLACE(description, ?, ?) WHERE source_type = 'payment' AND source_id = ?`).run(p.doc_no, no, paymentId)
+    }
+    audit(db, actor.userId, "payment.renumber", "payment", paymentId, { from: p.doc_no, to: no })
+    return no
+  })
+}
+
+const autoExpenseNo = (id: number) => `EXP-${String(id).padStart(4, "0")}`
+
+/** The number shown for an expense: the one typed by the user, else EXP-0001 style. */
+export function expenseNoTaken(db: DB, no: string, exceptId = 0): boolean {
+  if (db.prepare("SELECT 1 FROM expenses WHERE reference = ? COLLATE NOCASE AND id != ?").get(no, exceptId)) return true
+  const m = /^EXP-0*(\d+)$/i.exec(no)
+  if (m) {
+    const other = db.prepare("SELECT id, reference FROM expenses WHERE id = ?").get(Number(m[1])) as { id: number; reference: string | null } | undefined
+    if (other && other.id !== exceptId && !other.reference) return true
+  }
+  return false
+}
+
+export function renumberExpense(db: DB, actor: Actor, expenseId: number, raw: string): string {
+  requirePermission(actor, "ledger.adjust")
+  const no = cleanInvoiceNo(raw)
+  if (!no) throw new AppError("VALIDATION", "Type the number")
+  return tx(db, () => {
+    const e = db.prepare("SELECT id, reference FROM expenses WHERE id = ?").get(expenseId) as { id: number; reference: string | null } | undefined
+    if (!e) throw new AppError("NOT_FOUND", "Expense not found")
+    const old = e.reference || autoExpenseNo(e.id)
+    if (old === no) return no
+    if (expenseNoTaken(db, no, expenseId)) throw new AppError("VALIDATION", `Number ${no} is already used`)
+    db.prepare("UPDATE expenses SET reference = ? WHERE id = ?").run(no, expenseId)
+    audit(db, actor.userId, "expense.renumber", "expense", expenseId, { from: old, to: no })
+    return no
   })
 }

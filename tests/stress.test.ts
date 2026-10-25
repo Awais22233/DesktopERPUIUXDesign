@@ -10,6 +10,7 @@ import { recordReceipt } from "../src/main/services/payments"
 import { createCity, createCompany, createItem, createParty, createSupplier, createVariant, createAccount, ensureWalkInParty } from "../src/main/services/masterData"
 import { createBackup } from "../src/main/db/backup"
 import { rng } from "./support/fuzz"
+import { setFlag } from "../src/main/services/config"
 import { setup, tempDir } from "./helpers"
 
 // Heavy: run with STRESS=1. Models a large wholesaler: 20,000 variants, 3,000 customers, 90 trading days.
@@ -26,6 +27,7 @@ heavy("a very large shop", () => {
     const dir = tempDir()
     const c = await setup("cloth", join(dir, "big.db"))
     const log: string[] = []
+    setFlag(c.db, null, "profit", true) // this test also times the profit reports, which cloth hides by default
     const r = rng(2026)
     const N_VARIANTS = Number(process.env.STRESS_VARIANTS ?? 20_000)
     const N_CUSTOMERS = 3000

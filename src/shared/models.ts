@@ -135,7 +135,7 @@ export type DashboardData = {
   weekPrev: number
   month: { label: string; value: number }[]
   monthPrev: number
-  inventory: { items: number; units: number; value: number; low: number; out: number; reorder: number }
+  inventory: { items: number; units: number; meters: number; value: number; low: number; out: number; reorder: number }
   lowStock: Product[]
   recentSales: Transaction[]
   recentPurchases: Transaction[]

@@ -6,6 +6,7 @@ import { ensureColour } from "./colours"
 import { postMovement } from "./stock"
 import { lengthLabel, perThan, toTenths, variantForLength } from "./meters"
 import { addAccountEntry, addLedgerEntry } from "./posting"
+import { staffForBill } from "./staff"
 
 const clean = (v: string | undefined | null) => (v === undefined || v === null || v.trim() === "" ? null : v.trim())
 const must = (v: string | undefined, label: string) => {
@@ -44,9 +45,24 @@ export interface PartyForm {
   active?: boolean
   /** minor units; only when creating. Positive = they owe us (customer) / we owe them (supplier). */
   openingBalance?: number
+  /** customers only: the usual salesman and recovery person (staff ids); null clears */
+  salesmanId?: number | null
+  recoveryId?: number | null
 }
 
 export function saveParty(db: DB, actor: Actor, kind: "customer" | "supplier", f: PartyForm): number {
+  return tx(db, () => {
+    const id = savePartyRow(db, actor, kind, f)
+    if (kind === "customer" && (f.salesmanId !== undefined || f.recoveryId !== undefined)) {
+      if (f.salesmanId) staffForBill(db, f.salesmanId, "salesman")
+      if (f.recoveryId) staffForBill(db, f.recoveryId, "recovery")
+      db.prepare("UPDATE parties SET salesman_id = ?, recovery_id = ? WHERE id = ? AND is_walk_in = 0").run(f.salesmanId ?? null, f.recoveryId ?? null, id)
+    }
+    return id
+  })
+}
+
+function savePartyRow(db: DB, actor: Actor, kind: "customer" | "supplier", f: PartyForm): number {
   requirePermission(actor, "party.manage")
   const name = must(f.name, kind === "customer" ? "Party name" : "Supplier name")
   if (f.creditLimit !== undefined && (!Number.isSafeInteger(f.creditLimit) || f.creditLimit < 0)) throw new AppError("VALIDATION", "Credit limit must be zero or more")

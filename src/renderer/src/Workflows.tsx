@@ -52,7 +52,7 @@ function LengthChips({ items, purchase, onPick }: { items: Product[]; purchase: 
   )
 }
 import { billToPng, copyPng } from "./billImage"
-import { INVOICE_DESIGNS, type LedgerView } from "@shared/models"
+import { INVOICE_DESIGNS, type LedgerView, type Staff } from "@shared/models"
 import type { Masters } from "@shared/models"
 import {
   Pencil,
@@ -111,7 +111,10 @@ export function SalesWorkspace({
   onAddProduct,
   onAddParty,
   numberEditable = true,
+  staff = [],
 }: {
+  /** salesmen and recovery persons (Settings) */
+  staff?: Staff[]
   /** Settings > Invoice numbering: when off the bill-number box is not shown. */
   numberEditable?: boolean
   /** Opens the "Add product" / "Add party" forms so a first sale never needs a trip to another screen. */
@@ -159,6 +162,8 @@ export function SalesWorkspace({
   const [paid, setPaid] = useState(draft?.paid ?? "")
   const [account, setAccount] = useState(draft?.account ?? accounts[0]?.name ?? "")
   const [discount, setDiscount] = useState(draft?.discount ?? "0")
+  const [bookedBy, setBookedBy] = useState("")
+  const [recoveryBy, setRecoveryBy] = useState("")
   const [error, setError] = useState("")
   const [invoice, setInvoice] = useState(draft?.invoice ?? "")
   const [invoiceDate, setInvoiceDate] = useState(draft?.invoiceDate ?? today)
@@ -253,6 +258,8 @@ export function SalesWorkspace({
         account,
         supplierInvoice: invoice.trim() || undefined,
         invoiceDiscount: Number(discount),
+        bookedById: bookedBy || undefined,
+        recoveryById: recoveryBy || undefined,
       },
       print,
     )
@@ -620,6 +627,9 @@ export function SalesWorkspace({
                 onChange={(id) => {
                   setParty(id)
                   setError("")
+                  const p = parties.find((x) => x.id === id)
+                  setBookedBy(p?.salesmanId ?? "")
+                  setRecoveryBy(p?.recoveryId ?? "")
                 }}
               />
               {onAddParty && (
@@ -628,6 +638,30 @@ export function SalesWorkspace({
                 </button>
               )}
             </Field>
+            {!purchase && staff.some((x) => x.active) && (
+              <div className="form-grid">
+                <Field label="Booked by (salesman)">
+                  <Select aria-label="Booked by" value={bookedBy} onChange={(e) => setBookedBy(e.target.value)}>
+                    <option value="">None</option>
+                    {staff.filter((x) => (x.active || x.id === bookedBy) && x.role !== "recovery").map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Recovery person">
+                  <Select aria-label="Recovery person" value={recoveryBy} onChange={(e) => setRecoveryBy(e.target.value)}>
+                    <option value="">None</option>
+                    {staff.filter((x) => (x.active || x.id === recoveryBy) && x.role !== "salesman").map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
             {selectedParty && (
               <div className="party-balance">
                 <div>
@@ -903,7 +937,9 @@ export function EntryForm({
   initial,
   onClose,
   onSubmit,
+  forSupplier = false,
 }: {
+  forSupplier?: boolean
   type: string
   parties: Party[]
   masters: Masters
@@ -1191,6 +1227,30 @@ export function EntryForm({
                 <Input name="terms" type="number" min="0" defaultValue={pty?.terms ?? ""} placeholder="e.g. 30" />
               </Field>
             </div>
+            {!forSupplier && masters.staff.some((x) => x.active) && (
+              <div className="form-grid">
+                <Field label="Usual salesman" hint="Printed on this party's bills.">
+                  <Select name="salesman" defaultValue={pty?.salesmanId ?? ""}>
+                    <option value="">None</option>
+                    {masters.staff.filter((x) => (x.active || x.id === pty?.salesmanId) && x.role !== "recovery").map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Usual recovery person">
+                  <Select name="recovery" defaultValue={pty?.recoveryId ?? ""}>
+                    <option value="">None</option>
+                    {masters.staff.filter((x) => (x.active || x.id === pty?.recoveryId) && x.role !== "salesman").map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
             {!editing && (
               <Field label="Opening balance (Rs.)" hint="What this party already owes you (or you owe a supplier) before you start using the program.">
                 <Input name="opening" type="number" step="0.01" placeholder="0" />
@@ -1780,13 +1840,33 @@ export function InvoicePreview({
         </div>
         {transaction?.status === "void" && <div className="invoice-void">CANCELLED — this invoice is void</div>}
         <div className="invoice-meta">
-          <div>
+          <div className="meta-party">
             <span>{receipt ? (collection?.supplier ? "Paid to" : "Received from") : purchase ? "Supplier" : "Bill to"}</span>
             <strong>{transaction?.party || collection?.party}</strong>
+            {!!(doc?.partyAddress || doc?.partyCity) && (
+              <small className="meta-sub">
+                {[doc?.partyAddress, doc?.partyCity && !(doc?.partyAddress ?? "").toLowerCase().includes(doc.partyCity.toLowerCase()) ? doc.partyCity : ""].filter(Boolean).join(", ")}
+              </small>
+            )}
+            {!!doc?.partyPhone && <small className="meta-sub">Phone: {doc.partyPhone}</small>}
           </div>
           <div className="invoice-meta-right">
             <span>Prepared by</span>
             <strong>{transaction?.user || collection?.user || "—"}</strong>
+            {!!transaction?.bookedBy && (
+              <>
+                <span>Booked by</span>
+                <strong>{transaction.bookedBy}</strong>
+                {!!transaction.bookedPhone && <small className="meta-sub">{transaction.bookedPhone}</small>}
+              </>
+            )}
+            {!!transaction?.recoveryBy && (
+              <>
+                <span>Recovery by</span>
+                <strong>{transaction.recoveryBy}</strong>
+                {!!transaction.recoveryPhone && <small className="meta-sub">{transaction.recoveryPhone}</small>}
+              </>
+            )}
           </div>
         </div>
         {receipt ? (
@@ -1881,6 +1961,11 @@ export function InvoicePreview({
             ]}
           />
           )
+        )}
+        {!receipt && (
+          <div className="invoice-count">
+            Total # of items: {rows.length} / {rows.reduce((n, r) => n + r.qty, 0)}
+          </div>
         )}
         {!receipt && (
           <div className="invoice-totals">

@@ -1090,3 +1090,52 @@ html[data-theme="dark"] .nav-item:hover, html[data-theme="dark"] .nav-item.activ
 .party-picker li.current { font-weight: 600; }
 .party-picker li.party-clear { color: var(--muted); border-bottom: 1px solid var(--border); border-radius: 5px 5px 0 0; margin-bottom: 3px; }
 .party-picker li.party-empty { color: var(--muted); cursor: default; font-size: 11.5px; }
+
+/* customer details and staff on the bill */
+.invoice-meta { gap: 24px; }
+.invoice-meta .meta-sub { font-size: 10.5px; color: #6f7d94; line-height: 1.5; margin-top: -4px; }
+.invoice-meta-right { align-items: flex-end; }
+.invoice-count { display: none; }
+
+/* Estimate: a typewriter-style printed estimate, like a distributor's dot-matrix bill */
+.invoice-paper.inv-estimate { font-family: 'Courier New', Courier, 'Liberation Mono', monospace; padding: 22px 24px; border-radius: 0; border: 1px solid #1f2a44; font-size: 11.5px; color: #1b2233; }
+.invoice-paper.inv-estimate * { font-family: inherit; }
+.invoice-paper.inv-estimate .invoice-head { align-items: flex-start; gap: 14px; padding-bottom: 8px; border-bottom: 1px dashed #1f2a44; }
+.invoice-paper.inv-estimate .invoice-company .brand-mark { width: 44px; height: 44px; }
+.invoice-paper.inv-estimate .invoice-company .brand-mark.has-logo { height: 44px; }
+.invoice-paper.inv-estimate .invoice-company-text h2 { font-size: 18px; letter-spacing: 1px; text-transform: uppercase; color: #1b2233; }
+.invoice-paper.inv-estimate .invoice-tagline, .invoice-paper.inv-estimate .invoice-address { font-size: 10px; color: #3b4558; line-height: 1.4; margin-top: 2px; }
+.invoice-paper.inv-estimate .invoice-doc { align-items: flex-end; gap: 2px; }
+.invoice-paper.inv-estimate .invoice-doc h3 { background: none; color: #1b2233; font-size: 16px; font-weight: 700; letter-spacing: 8px; padding: 0; border: 0; }
+.invoice-paper.inv-estimate .invoice-doc .invoice-no { font-size: 14px; letter-spacing: 1px; margin: 0; }
+.invoice-paper.inv-estimate .invoice-doc .invoice-date { font-size: 11px; color: #1b2233; }
+.invoice-paper.inv-estimate .invoice-meta { border-bottom: 1px dashed #1f2a44; padding: 10px 0; gap: 18px; }
+.invoice-paper.inv-estimate .invoice-meta > div { gap: 1px; }
+.invoice-paper.inv-estimate .invoice-meta span { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: #3b4558; margin-top: 4px; }
+.invoice-paper.inv-estimate .invoice-meta strong { font-size: 12.5px; text-transform: uppercase; }
+.invoice-paper.inv-estimate .invoice-meta .meta-sub { color: #1b2233; font-size: 10.5px; margin-top: 0; text-transform: uppercase; }
+.invoice-paper.inv-estimate table { font-size: 11px; }
+.invoice-paper.inv-estimate table th { background: none; color: #1b2233; border-top: 1px solid #1f2a44; border-bottom: 1px solid #1f2a44; text-transform: none; font-weight: 700; padding: 5px 8px; }
+.invoice-paper.inv-estimate table td { border-bottom: 0; height: auto; padding: 3px 8px; color: #1b2233; }
+.invoice-paper.inv-estimate table tbody tr:last-child td { border-bottom: 1px solid #1f2a44; }
+.invoice-paper.inv-estimate table td strong { font-weight: 600; color: #1b2233; }
+.invoice-paper.inv-estimate .invoice-count { display: block; margin: 8px 0 0; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
+.invoice-paper.inv-estimate .invoice-totals { width: 330px; margin: 6px 0 14px auto; }
+.invoice-paper.inv-estimate .invoice-totals > div { border-bottom: 0; padding: 3px 0; font-size: 11.5px; text-transform: uppercase; }
+.invoice-paper.inv-estimate .invoice-totals > div.grand { border-top: 1px solid #1f2a44; border-bottom: 1px solid #1f2a44; margin-top: 4px; padding: 5px 0; }
+.invoice-paper.inv-estimate .invoice-totals > div.grand strong { color: #1b2233; font-size: 14px; }
+.invoice-paper.inv-estimate .invoice-totals > .account-summary { border: 0; border-top: 1px dashed #1f2a44; border-radius: 0; padding: 4px 0 0; margin-top: 8px; }
+.invoice-paper.inv-estimate .account-summary > div { border-bottom: 0; padding: 2px 0; font-size: 11.5px; text-transform: uppercase; }
+.invoice-paper.inv-estimate .invoice-note { color: #1b2233; font-size: 10.5px; margin-top: 12px; line-height: 1.5; }
+.invoice-paper.inv-estimate .invoice-signature { margin-top: 28px; }
+.invoice-paper.inv-estimate .invoice-signature span { border-top: 1px dashed #1f2a44; color: #1b2233; font-size: 10px; text-transform: uppercase; }
+.invoice-paper.inv-estimate .receipt-amount { border: 1px dashed #1f2a44; background: none; border-radius: 0; }
+@media print {
+  .invoice-paper.inv-estimate .invoice-head, .invoice-paper.inv-estimate .invoice-meta { border-bottom: 1px dashed #000; }
+  .invoice-paper.inv-estimate table th { border-top: 1px solid #000; border-bottom: 1px solid #000; background: none; }
+  .invoice-paper.inv-estimate table td { border-bottom: 0; }
+  .invoice-paper.inv-estimate table tbody tr:last-child td { border-bottom: 1px solid #000; }
+  .invoice-paper.inv-estimate .invoice-doc h3 { border: 0 !important; letter-spacing: 8px; }
+  .invoice-paper.inv-estimate { border-color: #000; }
+}
+html[data-theme="dark"] .invoice-paper.inv-estimate .invoice-doc h3 { color: #1b2233; }

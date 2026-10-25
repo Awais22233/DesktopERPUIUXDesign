@@ -5,6 +5,7 @@ import { can, requirePermission, type Actor } from "@core/permissions"
 import { audit, getSetting, nextDocNo, tx } from "../db/util"
 import { postMovement } from "./stock"
 import { addAccountEntry, addLedgerEntry } from "./posting"
+import { staffForBill } from "./staff"
 import { assertNumberChangeAllowed, isFlagEnabled, resolveTimestamp } from "./policy"
 import { customerBalance } from "./queries"
 import { perThan } from "./meters"
@@ -33,6 +34,9 @@ export interface SaleInput {
   overrideCreditLimit?: boolean
   /** The number from the shop's own bill book. Empty means: use the next automatic number. */
   invoiceNo?: string
+  /** Salesman who booked the order and recovery person for this customer; their name and phone are kept on the bill. */
+  bookedById?: number
+  recoveryById?: number
 }
 export interface SaleResult {
   saleId: number
@@ -213,13 +217,15 @@ export function postSale(db: DB, actor: Actor, input: SaleInput): SaleResult {
     if (typedNo) assertNumberChangeAllowed(db)
     if (typedNo && invoiceNoTaken(db, typedNo)) throw new AppError("VALIDATION", `Bill number ${typedNo} is already used. Check your bill book.`)
     const invoiceNo = typedNo ?? freeAutoNo(db)
+    const booked = staffForBill(db, input.bookedById, "salesman")
+    const recov = staffForBill(db, input.recoveryById, "recovery")
     const saleId = Number(
       db
         .prepare(
-          `INSERT INTO sales(invoice_no, ts, party_id, subtotal, discount, total, paid, notes, user_id)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO sales(invoice_no, ts, party_id, subtotal, discount, total, paid, notes, user_id, booked_by, booked_phone, recovery_by, recovery_phone)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
-        .run(invoiceNo, ts, party.id, subtotal, discount, total, paid, input.notes ?? null, actor.userId).lastInsertRowid,
+        .run(invoiceNo, ts, party.id, subtotal, discount, total, paid, input.notes ?? null, actor.userId, booked?.name ?? null, booked?.phone ?? null, recov?.name ?? null, recov?.phone ?? null).lastInsertRowid,
     )
 
     for (const l of lines) {

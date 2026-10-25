@@ -1,3 +1,4 @@
+import { saveStaff } from "./services/staff"
 import type { DB } from "./db/connection"
 import { AppError } from "@core/errors"
 import { ALL_PERMISSIONS, PERMISSIONS, requirePermission, type Actor, type Permission } from "@core/permissions"
@@ -105,7 +106,7 @@ const SETTING_RULES: Record<string, (v: string) => boolean> = {
   "than.sizes": (v) => jsonList(v, 200),
   "payment.methods": (v) => jsonList(v, 30) && JSON.parse(v).length > 0,
   "invoice.layout": (v) => v === "A4 invoice" || v === "Thermal receipt",
-  "invoice.design": (v) => ["modern", "classic", "minimal", "ledger", "elegant"].includes(v),
+  "invoice.design": (v) => ["modern", "classic", "minimal", "ledger", "elegant", "estimate"].includes(v),
   "invoice.allow_number_change": (v) => v === "on" || v === "off",
   "print.thermal_width": (v) => v === "58" || v === "80",
   "expiry.warning_days": (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 365,
@@ -163,6 +164,8 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
         notes: p.notes,
         overrideCreditLimit: p.overrideCreditLimit,
         invoiceNo: p.invoiceNo,
+        bookedById: p.bookedBy ? idNumber(p.bookedBy) : undefined,
+        recoveryById: p.recoveryBy ? idNumber(p.recoveryBy) : undefined,
       })
       return { id: res.invoiceNo, warnings: res.warnings }
     },
@@ -260,10 +263,11 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "party:save": (p) => {
       const id = saveParty(db(), actor(), p.kind, {
         id: p.id ? idNumber(p.id) : undefined, name: p.name, city: p.city, phone: p.phone, whatsapp: p.whatsapp, area: p.area, address: p.address, notes: p.notes,
-        creditLimit: p.limit === undefined ? undefined : paisa(p.limit), paymentTermsDays: p.terms, active: p.active, openingBalance: p.openingBalance === undefined ? undefined : paisa(p.openingBalance),
+        creditLimit: p.limit === undefined ? undefined : paisa(p.limit), salesmanId: p.salesman === undefined ? undefined : p.salesman ? idNumber(p.salesman) : null, recoveryId: p.recovery === undefined ? undefined : p.recovery ? idNumber(p.recovery) : null, paymentTermsDays: p.terms, active: p.active, openingBalance: p.openingBalance === undefined ? undefined : paisa(p.openingBalance),
       })
       return { id: fmtId(p.kind === "customer" ? "PTY" : "SUP", id) }
     },
+    "staff:save": (p) => ({ id: fmtId("STF", saveStaff(db(), actor(), { id: p.id ? idNumber(p.id) : undefined, name: p.name, phone: p.phone, role: p.role, active: p.active })) }),
     "product:save": (p) => {
       const id = saveProduct(db(), actor(), {
         id: p.id ? idNumber(p.id) : undefined, company: p.company, article: p.article, category: p.category, subcategory: p.subcategory, color: p.color, design: p.design, size: p.size, length: p.length, lengths: p.lengths, unit: p.unit, barcode: p.barcode, sku: p.sku,

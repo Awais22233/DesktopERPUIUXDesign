@@ -1,3 +1,4 @@
+import { listStaff } from "./staff"
 import type { DB } from "../db/connection"
 import { getSetting } from "../db/util"
 import { buildDashboard } from "./dashboard"
@@ -96,6 +97,7 @@ export function buildMasters(db: DB): Masters {
   return {
     accounts: (db.prepare(`SELECT a.id, a.name, a.type, a.active, COALESCE(b.balance,0) AS bal FROM accounts a LEFT JOIN v_account_balance b ON b.account_id = a.id ORDER BY a.id`).all() as { id: number; name: string; type: "cash" | "bank"; active: number; bal: number }[]).map((a) => ({ id: a.id, name: a.name, type: a.type, balance: r(a.bal), active: !!a.active })),
     expenseCategories: (db.prepare("SELECT name FROM expense_categories ORDER BY name").all() as { name: string }[]).map((x) => x.name),
+    staff: listStaff(db).map((x) => ({ ...x, id: fmtId("STF", x.id) })),
     companies: (db.prepare("SELECT name FROM companies ORDER BY name").all() as { name: string }[]).map((x) => x.name),
     categories: tops.map((t) => ({ name: t.name, sub: (db.prepare("SELECT name FROM categories WHERE parent_id = ? ORDER BY name").all(t.id) as { name: string }[]).map((s) => s.name) })),
     cities: (db.prepare("SELECT name FROM cities ORDER BY name").all() as { name: string }[]).map((x) => x.name),
@@ -119,7 +121,7 @@ export function buildSnapshot(db: DB): Snapshot {
   const historyFrom = today.slice(0, 8) + "01"
   const walk = db.prepare("SELECT id FROM parties WHERE is_walk_in = 1").get() as { id: number } | undefined
 
-  const partyRow = (x: { id: number; name: string; city: string | null; phone: string | null; whatsapp?: string | null; area?: string | null; address: string | null; notes: string | null; credit_limit?: number; payment_terms_days: number | null; status: string; bal: number }, prefix: string) => ({
+  const partyRow = (x: { id: number; name: string; city: string | null; phone: string | null; whatsapp?: string | null; area?: string | null; address: string | null; notes: string | null; credit_limit?: number; payment_terms_days: number | null; status: string; bal: number; salesman_id?: number | null; recovery_id?: number | null }, prefix: string) => ({
     id: fmtId(prefix, x.id),
     name: x.name,
     city: x.city ?? "",
@@ -129,6 +131,8 @@ export function buildSnapshot(db: DB): Snapshot {
     address: x.address ?? "",
     notes: x.notes ?? "",
     terms: x.payment_terms_days ?? undefined,
+    salesmanId: x.salesman_id ? fmtId("STF", x.salesman_id) : undefined,
+    recoveryId: x.recovery_id ? fmtId("STF", x.recovery_id) : undefined,
     balance: r(x.bal),
     limit: r(x.credit_limit ?? 0),
     status: x.status === "inactive" ? "Inactive" : x.bal > 0 ? "Outstanding" : "Clear",
@@ -136,10 +140,10 @@ export function buildSnapshot(db: DB): Snapshot {
   const parties = (db.prepare(`SELECT p.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM parties p LEFT JOIN cities c ON c.id = p.city_id LEFT JOIN v_customer_balance b ON b.party_id = p.id WHERE p.is_walk_in = 0 ORDER BY p.name`).all() as never[]).map((x) => partyRow(x, "PTY"))
   const suppliers = (db.prepare(`SELECT s.*, c.name AS city, COALESCE(b.balance,0) AS bal FROM suppliers s LEFT JOIN cities c ON c.id = s.city_id LEFT JOIN v_supplier_balance b ON b.supplier_id = s.id ORDER BY s.name`).all() as never[]).map((x) => partyRow(x, "SUP"))
 
-  const collectionRows = (db.prepare(`SELECT p.id AS pay_id, p.party_id AS party_id, p.doc_no, p.ts, p.amount, p.method, p.reference, p.notes, p.received_by, pa.name AS party, a.name AS account, u.display_name AS usr
-      FROM payments p JOIN parties pa ON pa.id = p.party_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id
+  const collectionRows = (db.prepare(`SELECT p.id AS pay_id, p.party_id AS party_id, p.doc_no, p.ts, p.amount, p.method, p.reference, p.notes, p.received_by, pa.name AS party, pa.address AS paddr, pa.phone AS pphone, pc.name AS pcity, a.name AS account, u.display_name AS usr
+      FROM payments p JOIN parties pa ON pa.id = p.party_id LEFT JOIN cities pc ON pc.id = pa.city_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id
       WHERE p.kind = 'customer_receipt' AND p.status = 'posted' AND p.ts >= ? ORDER BY p.ts DESC, p.id DESC LIMIT 3000`).all(since) as Record<string, any>[]).map((x) => ({
-    id: x.doc_no, party: x.party, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "", pay_id: x.pay_id as number, party_id: x.party_id as number,
+    id: x.doc_no, party: x.party, partyAddress: x.paddr ?? undefined, partyPhone: x.pphone ?? undefined, partyCity: x.pcity ?? undefined, amount: r(x.amount), method: x.method, account: x.account, date: bizDate(x.ts, off), time: bizTime(x.ts, off), user: x.received_by || x.usr || "", notes: x.notes ?? "", pay_id: x.pay_id as number, party_id: x.party_id as number,
   }))
   const supplierPayments = (db.prepare(`SELECT p.doc_no, p.ts, p.amount, p.method, p.notes, su.name AS party, a.name AS account, u.display_name AS usr
       FROM payments p JOIN suppliers su ON su.id = p.party_id JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.user_id

@@ -1,4 +1,4 @@
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 
 const { page, step, shot, nav, finish } = await launch("cloth", "Faraz Cloth House")
 
@@ -91,7 +91,7 @@ await step("purchase raises stock and creates a payable", async () => {
   await nav("Purchases")
   await page.getByRole("button", { name: /New purchase/ }).first().click()
   await page.waitForSelector("text=Purchase details")
-  await page.locator("select", { hasText: "Select supplier" }).selectOption({ label: "ABC Textile" })
+  await pickParty(page, "ABC Textile")
   await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("20")
   await page.getByRole("button", { name: /Save purchase/ }).click()
@@ -99,7 +99,7 @@ await step("purchase raises stock and creates a payable", async () => {
 })
 await step("sale with a partial payment", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
+  await pickParty(page, "Ali Traders")
   await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("10")
   await page.getByRole("button", { name: "Partial", exact: true }).first().click()
@@ -108,7 +108,7 @@ await step("sale with a partial payment", async () => {
   await page.waitForSelector("text=/Sale INV-00001 saved/")
 })
 await step("selling more than the stock is refused politely", async () => {
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
+  await pickParty(page, "Ali Traders")
   await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("50")
   await page.getByRole("button", { name: /Save sale/ }).click()
@@ -121,7 +121,7 @@ await step("customer balance = opening + sale - paid", async () => {
 await step("recovery (receive payment) and receipt", async () => {
   await nav("Recovery")
   await page.getByRole("button", { name: /Receive payment|New collection|Record/ }).first().click()
-  await page.locator("select[name=partyId]").selectOption({ label: "Ali Traders" })
+  await pickParty(page, "Ali Traders")
   await page.locator("input[name=amount]").fill("3000")
   await page.getByRole("button", { name: /Save & view receipt/ }).click()
   await page.waitForSelector("text=/Payment RCT-00001 received/")
@@ -146,7 +146,7 @@ await step("sales return against the invoice", async () => {
 })
 await step("cancel a sale: stock and balance are reversed, the invoice is kept", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Ali Traders" })
+  await pickParty(page, "Ali Traders")
   await page.locator(".group-card, .group-option", { hasText: "Article A Blue" }).getByRole("button", { name: /^1 m ×/ }).click()
   await page.getByLabel(/Quantity of Article A Blue/).fill("1")
   await page.getByRole("button", { name: "Credit", exact: true }).first().click()

@@ -1,6 +1,6 @@
 // Daily use by a real person, including the clumsy things real people do: double clicks, odd numbers, odd names,
 // leaving a half-made bill, pressing F5, and doing returns / cancellations / limits / closing on the real screens.
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 import { readFileSync } from "node:fs"
 
 const { page, app, step, shot, nav, finish } = await launch("cloth", "Daily Use House")
@@ -72,7 +72,7 @@ await step("set up: owner, 3 customers, 1 supplier, 6 products with 50 thans eac
 await step("double-clicking Save sale (and pressing F8 twice) makes ONE bill, not two", async () => {
   await pos()
   const before = (await counts()).sales
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: C[0] })
+  await pickParty(page, C[0])
   await pickProduct("Alpha Black")
   await page.getByLabel(/Quantity of Alpha Black/).fill("2")
   await page.getByRole("button", { name: "Credit", exact: true }).first().click()
@@ -96,7 +96,7 @@ await step("double-clicking Save on a purchase, a recovery, a new customer, a ne
   await nav("Purchases")
   await page.getByRole("button", { name: /New purchase/ }).first().click()
   await page.waitForSelector("text=Purchase details")
-  await page.locator("select", { hasText: "Select supplier" }).selectOption({ label: "ABC Mills" })
+  await pickParty(page, "ABC Mills")
   await pickProduct("Alpha White")
   await page.getByLabel(/Quantity of Alpha White/).fill("5")
   await page.getByRole("button", { name: /Save purchase/ }).dblclick()
@@ -104,7 +104,7 @@ await step("double-clicking Save on a purchase, a recovery, a new customer, a ne
   // recovery
   await nav("Recovery")
   await page.getByRole("button", { name: /Receive payment/ }).first().click()
-  await page.locator("select[name=partyId]").selectOption({ label: C[1] })
+  await pickParty(page, C[1])
   await page.locator("input[name=amount]").fill("1000")
   await page.getByRole("button", { name: /Save & view receipt/ }).dblclick()
   await wait(1200)
@@ -142,7 +142,7 @@ await step("double-clicking Save on a purchase, a recovery, a new customer, a ne
 await step("odd quantities, rates, discounts and payments are refused with a clear message and nothing is saved", async () => {
   await pos()
   const b = await counts()
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: C[0] })
+  await pickParty(page, C[0])
   await pickProduct("Bravo Black")
   const q = page.getByLabel(/Quantity of Bravo Black/)
   const rate = page.getByLabel(/Rate for Bravo Black/)
@@ -210,7 +210,7 @@ await step("odd customer names (Urdu, emoji, quotes, <script>, SQL, spaces, very
   // sell to the hostile one and look at the bill
   await pos()
   const hostile = stored.find((x) => x.includes("<img"))
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: hostile })
+  await pickParty(page, hostile)
   await pickProduct("Charlie Black")
   await page.getByLabel(/Quantity of Charlie Black/).fill("1")
   await page.getByRole("button", { name: "Cash", exact: true }).first().click().catch(() => {})
@@ -239,7 +239,7 @@ await step("two customers with the same name: what happens", async () => {
 // ---------------------------------------------------------------- half-made bills
 await step("a half-made bill: what survives switching screens and pressing F5", async () => {
   await pos()
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: C[1] })
+  await pickParty(page, C[1])
   await pickProduct("Delta Black")
   await page.getByLabel(/Quantity of Delta Black/).fill("3")
   await nav("Customers")
@@ -305,7 +305,7 @@ await step("Copy bill image puts a real picture of the bill on the clipboard (A4
   await page.reload()
   await page.waitForSelector("text=Business overview")
   await pos()
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: C[1] })
+  await pickParty(page, C[1])
   await pickProduct("Bravo Black")
   await page.getByLabel(/Quantity of Bravo Black/).fill("3")
   await page.getByRole("button", { name: "Credit", exact: true }).first().click()

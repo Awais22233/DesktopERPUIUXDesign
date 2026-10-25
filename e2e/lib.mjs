@@ -68,3 +68,11 @@ export async function launch(profile, client, opts = {}) {
   }
   return { app, page, step, root, issueKey, machineId: status.data.machineId, shot, nav, finish, data, env: { ...process.env, ERP_DATA_DIR: data, ERP_TEST_PUBLIC_KEY: pem, ERP_NO_DIALOGS: "1" }, work }
 }
+
+/** Chooses a party or supplier in the searchable chooser: type a few letters, click the match. */
+export async function pickParty(page, label) {
+  const box = page.locator(".party-picker input[role=combobox]").first()
+  await box.click()
+  await box.fill(label.slice(0, 20))
+  await page.locator(".party-picker li[role=option]").filter({ hasText: label }).first().click()
+}

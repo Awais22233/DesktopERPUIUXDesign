@@ -1,7 +1,7 @@
 // "Would a customer complain?" — a sweep over everything not covered by the other end-to-end suites:
 // every report with real data, every screen scanned for broken text (NaN, undefined...), small laptop screens,
 // a limited user who must not reach owner-only features, money-moving flows, backups, and memory use.
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 
 let seed = Number(process.env.SEED || 11)
 const rand = () => {
@@ -264,7 +264,7 @@ await step("a limited (sales) user can sell but cannot reach owner features, by 
   }
   // …but can sell
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: customers[1].name })
+  await pickParty(page, customers[1].name)
   await page.getByPlaceholder(/Scan a barcode or search|Search by name/).fill(products[3].name)
   await page.getByText(products[3].name).first().click()
   await page.getByLabel(new RegExp(`Quantity of ${products[3].name}`)).fill("2")

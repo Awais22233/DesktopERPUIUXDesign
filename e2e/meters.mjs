@@ -1,4 +1,4 @@
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 
 const { page, step, shot, nav, finish } = await launch("cloth", "Gul Cloth House", { profitHidden: true })
 const call = (ch, req) => page.evaluate(([c, r]) => window.api.invoke(c, r), [ch, req])
@@ -23,7 +23,7 @@ await step("purchase by the meter in the screen: first length, then a new length
   await nav("Purchases")
   await page.getByRole("button", { name: /New purchase/ }).first().click()
   await page.waitForSelector("text=Purchase details")
-  await page.locator("select", { hasText: "Select supplier" }).selectOption({ label: "ABC Textile" })
+  await pickParty(page, "ABC Textile")
   await page.getByRole("button", { name: "+ new length" }).click()
   await page.getByLabel(/Length of Lawn Blue/).fill("20")
   await page.getByLabel(/Quantity of Lawn Blue/).fill("5")
@@ -49,7 +49,7 @@ await step("inventory shows ONE product with a line per length and the meters", 
 })
 await step("sale: 3 thans of 20 m and 2 of 22.5 m, rate per meter; bill shows the meters", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await shot("pos-length-chips")
   await page.getByRole("button", { name: "20 m × 5" }).click()
   await page.getByRole("button", { name: "22.5 m × 4" }).click()
@@ -87,7 +87,7 @@ await step("stock left is right, and a decimal with two digits is refused", asyn
 await step("same product, same rate: ONE bill row with the breakdown, like the paper bill", async () => {
   await page.keyboard.press("Escape")
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await page.getByRole("button", { name: /^20 m ×/ }).click()
   await page.getByLabel(/Rate for Lawn Blue/).nth(0).fill("300")
   await page.getByRole("button", { name: /^22\.5 m ×/ }).click()
@@ -135,7 +135,7 @@ await step("details of that one line: every length, adjust a length", async () =
 })
 await step("bill with line discount and invoice discount, and a purchase bill number can be changed", async () => {
   await nav("POS / Sales")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: "Gul Ahmed Store" })
+  await pickParty(page, "Gul Ahmed Store")
   await page.locator(".group-card, .group-option", { hasText: "Cotton Grey" }).getByRole("button", { name: /^28 m ×/ }).click()
   await page.getByLabel(/Rate for Cotton Grey/).fill("200")
   await page.getByLabel(/Discount for Cotton Grey/).fill("100")

@@ -2,7 +2,7 @@
 // Sales on the POS, payments on the Recovery screen, stock on the Purchases screen, with a model of what every
 // balance and every stock level must be at the end. Also times each action and tries the usual mistakes.
 //   SALES=400 RECOVERIES=150 PURCHASES=80 SEED=1 xvfb-run -a node e2e/busyday.mjs
-import { launch } from "./lib.mjs"
+import { launch, pickParty } from "./lib.mjs"
 
 const SALES = Number(process.env.SALES || 60)
 const RECOVERIES = Number(process.env.RECOVERIES || 20)
@@ -130,7 +130,7 @@ async function doSale(n) {
 
   await nav("POS / Sales")
   const t0 = performance.now()
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: cust.name })
+  await pickParty(page, cust.name)
   await addLines(lines, false)
   if (invDisc) await page.locator("#invoice-discount").fill(String(R(invDisc)))
   await page.locator(".payment-options button", { hasText: new RegExp("^" + method + "$") }).click()
@@ -184,7 +184,7 @@ async function doPurchase(n) {
   await page.getByRole("button", { name: /New purchase/ }).first().click()
   await page.waitForSelector("text=Purchase details")
   const t0 = performance.now()
-  await page.locator("select", { hasText: "Select supplier" }).selectOption({ label: sup.name })
+  await pickParty(page, sup.name)
   for (const l of lines) {
     await page.getByPlaceholder(/Scan a barcode or search|Search by name/).fill(l.item.name)
     await page.getByText(l.item.name).first().click()
@@ -230,7 +230,7 @@ async function doRecovery(n) {
   await nav("Recovery")
   await page.getByRole("button", { name: /Receive payment/ }).first().click()
   const t0 = performance.now()
-  await page.locator("select[name=partyId]").selectOption({ label: cust.name })
+  await pickParty(page, cust.name)
   await page.locator("input[name=amount]").fill(String(R(amount)))
   const options = await page.locator("select[name=method] option").count()
   if (options > 1 && rand() < 0.4) await page.locator("select[name=method]").selectOption({ index: int(1, options - 1) })
@@ -269,7 +269,7 @@ await step("shop owner's mistakes are refused politely (no party, empty bill, to
     await page.waitForSelector(`text=${pattern}`)
   }
   await refused("/Select a party/i")
-  await page.locator("select", { hasText: "Select party" }).selectOption({ label: customers[0].name })
+  await pickParty(page, customers[0].name)
   await refused("/at least one product/i")
   const it = items[0]
   await page.getByPlaceholder(/Scan a barcode or search|Search by name/).fill(it.name)

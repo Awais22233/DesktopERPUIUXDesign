@@ -290,6 +290,7 @@ td strong { color: #46526a; font-weight: 550; }
 .summary-grid { display: grid; gap: 17px; margin-bottom: 22px; }
 .summary-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .summary-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.summary-grid.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .summary-card { padding: 20px; background: white; border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 12px; }
 .summary-card > span { color: #8591a3; font-size: 11px; }
 .summary-card > strong { font-size: 23px; font-weight: 600; letter-spacing: -.4px; font-variant-numeric: tabular-nums; }
@@ -693,7 +694,7 @@ td strong { color: #46526a; font-weight: 550; }
   .pos-layout { grid-template-columns: 1fr; }
   .pos-checkout { max-width: 100%; }
   .product-picker { grid-template-columns: 1fr 1fr; }
-  .summary-grid.four { grid-template-columns: 1fr 1fr; }
+  .summary-grid.four, .summary-grid.five { grid-template-columns: 1fr 1fr; }
   .summary-grid.three { gap: 10px; }
   .summary-card { padding: 15px; }
   .summary-card strong { font-size: 19px; }

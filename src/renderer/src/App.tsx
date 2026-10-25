@@ -101,7 +101,7 @@ const emptyStore: Store = {
   audits: [],
   returns: [],
   closings: [],
-  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [], setup: { shopDetails: true, money: true, parties: true, products: true, firstSale: true } },
+  dashboard: { todaySales: 0, todaySalesCount: 0, todayRecovery: 0, todayRecoveryCount: 0, todayPurchases: 0, todayPurchaseCount: 0, todayExpenses: 0, grossProfit: 0, margin: null, receivables: 0, payables: 0, stockValue: 0, receivedCash: 0, receivedBank: 0, salesReceived: 0, week: [], weekPrev: 0, month: [], monthPrev: 0, inventory: { items: 0, units: 0, meters: 0, value: 0, low: 0, out: 0, reorder: 0 }, lowStock: [], recentSales: [], recentPurchases: [], expiring: [], cities: [], setup: { shopDetails: true, money: true, parties: true, products: true, firstSale: true } },
   masters: { accounts: [], expenseCategories: [], companies: [], categories: [], cities: [], thanSizes: [], paymentMethods: [], roles: [], sequences: [], settings: {} },
 }
 const navGroups: {
@@ -785,7 +785,7 @@ export default function App() {
   }
   function inventoryPage() {
     const rows = inventory.data?.rows ?? []
-    const sum = inventory.data?.summary ?? { items: 0, units: 0, value: 0, low: 0, out: 0, reorder: 0 }
+    const sum = inventory.data?.summary ?? { items: 0, units: 0, meters: 0, value: 0, low: 0, out: 0, reorder: 0 }
     // one product, one line per length: the second and later lengths of a product are shown as part of it
     const sameProduct = (a: Product, b: Product) => a.length != null && b.length != null && a.company === b.company && a.article === b.article && a.color === b.color && (a.design ?? "") === (b.design ?? "")
     const grouped: Product[][] = []
@@ -821,7 +821,7 @@ export default function App() {
             Adjust stock
           </Button>
         </PageHeading>
-        <div className="summary-grid four">
+        <div className={`summary-grid ${isEnabled("than") ? "five" : "four"}`}>
           {isEnabled("profit") ? (
             <Summary label="Total stock value" value={money(sum.value)} />
           ) : (
@@ -831,6 +831,7 @@ export default function App() {
             label={`Total available ${L.units}`}
             value={sum.units.toLocaleString()}
           />
+          {isEnabled("than") && <Summary label="Total meters" value={`${sum.meters.toLocaleString(undefined, { maximumFractionDigits: 1 })} m`} />}
           <Summary
             label="Low stock items"
             value={sum.low.toLocaleString()}

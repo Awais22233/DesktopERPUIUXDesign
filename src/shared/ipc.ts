@@ -101,7 +101,7 @@ export interface IpcContract {
   "auth:logout": { req: undefined; res: null }
   "auth:changePassword": { req: { current: string; next: string }; res: null }
   "snapshot:get": { req: undefined; res: Snapshot }
-  "products:list": { req: { query?: string; status?: "all" | "in" | "low" | "out" | "inactive"; page?: number; pageSize?: number; activeOnly?: boolean; ids?: Id[] }; res: { rows: Product[]; total: number; page: number; pageSize: number; summary: { items: number; units: number; value: number; low: number; out: number; reorder: number } } }
+  "products:list": { req: { query?: string; status?: "all" | "in" | "low" | "out" | "inactive"; page?: number; pageSize?: number; activeOnly?: boolean; ids?: Id[] }; res: { rows: Product[]; total: number; page: number; pageSize: number; summary: { items: number; units: number; meters: number; value: number; low: number; out: number; reorder: number } } }
   "docs:list": { req: { kind: "sale" | "purchase"; query?: string; status?: "all" | "completed" | "void"; page?: number; pageSize?: number; no?: string; partyId?: Id; payment?: "paid" | "partial" | "unpaid" }; res: { rows: Transaction[]; total: number; page: number; pageSize: number; summary: { count: number; total: number; paid: number } } }
   "movements:list": { req: { productId?: Id; page?: number; pageSize?: number }; res: { rows: Movement[]; total: number; page: number; pageSize: number } }
   "report:run": { req: { name: string; from: string; to: string; filter?: string }; res: ReportResult }

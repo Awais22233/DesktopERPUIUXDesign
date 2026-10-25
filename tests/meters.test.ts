@@ -3,7 +3,7 @@ import { AppError } from "../src/core/errors"
 import { postPurchase } from "../src/main/services/purchases"
 import { postSale, voidSale } from "../src/main/services/sales"
 import { variantForLength, toTenths, fmtMeters } from "../src/main/services/meters"
-import { listDocs, listProducts } from "../src/main/services/lists"
+import { inventorySummary, listDocs, listProducts } from "../src/main/services/lists"
 import { customerBalance, stockReconcile, supplierBalance } from "../src/main/services/queries"
 import { setup, type Ctx } from "./helpers"
 
@@ -123,5 +123,15 @@ describe("purchase bill number", () => {
     expect(codeOf(() => renumberPurchase(c.db, c.owner, b.purchaseId, "p-501"))).toContain("already used")
     renumberPurchase(c.db, c.owner, b.purchaseId, "PUR-00003")
     expect(buy(c, 20, 1, 10_000).purchaseNo).toBe("PUR-00004") // PUR-00003 is taken by b
+  })
+})
+
+describe("total meters in stock", () => {
+  it("adds up thans times their length across every length, and drops when thans are sold", () => {
+    buy(c, 20, 5, 100_00) // 100 m
+    buy(c, 22.5, 4, 110_00) // 90 m
+    expect(inventorySummary(c.db).meters).toBe(190)
+    postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: variantForLength(c.db, c.blue, toTenths(20)), qty: 2, rate: 100_00 }], payments: [] })
+    expect(inventorySummary(c.db).meters).toBe(150)
   })
 })

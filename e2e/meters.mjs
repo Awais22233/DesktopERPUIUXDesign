@@ -45,6 +45,7 @@ await step("inventory shows ONE product with a line per length and the meters", 
   if ((t.match(/Lawn Blue/g) ?? []).length !== 1) throw new Error("the product is listed more than once")
   if (!/20 m × 5/.test(t) || !/22\.5 m × 4/.test(t)) throw new Error("lengths not shown")
   if (!/= 190 m/.test(t)) throw new Error("meters not shown: " + t.slice(0, 400))
+  if (!/Total meters\s*190 m/.test(t)) throw new Error("total meters card missing: " + t.slice(0, 500))
   await shot("inventory-lengths")
 })
 await step("sale: 3 thans of 20 m and 2 of 22.5 m, rate per meter; bill shows the meters", async () => {

@@ -121,6 +121,8 @@ export function listProducts(db: DB, q: ProductQuery): Page<Product> {
 export interface InventorySummary {
   items: number
   units: number
+  /** Cloth sold by the meter: stock in thans times the length of each than. */
+  meters: number
   value: number
   low: number
   out: number
@@ -132,13 +134,14 @@ export function inventorySummary(db: DB): InventorySummary {
     .prepare(
       `SELECT COUNT(*) AS items, COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 THEN sl.qty ELSE 0 END),0) AS units,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 THEN sl.value ELSE 0 END),0) AS value,
+              COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 AND v.length_tenths IS NOT NULL THEN sl.qty * v.length_tenths ELSE 0 END),0) AS tenths,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) > 0 AND sl.qty <= v.min_stock THEN 1 ELSE 0 END),0) AS low,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) <= 0 THEN 1 ELSE 0 END),0) AS out,
               COALESCE(SUM(CASE WHEN COALESCE(sl.qty,0) <= v.min_stock THEN 1 ELSE 0 END),0) AS reorder
        FROM variants v LEFT JOIN stock_levels sl ON sl.variant_id = v.id AND sl.warehouse_id = 1 WHERE v.active = 1`,
     )
-    .get() as { items: number; units: number; value: number; low: number; out: number; reorder: number }
-  return { items: row.items, units: row.units, value: r(row.value), low: row.low, out: row.out, reorder: row.reorder }
+    .get() as { items: number; units: number; tenths: number; value: number; low: number; out: number; reorder: number }
+  return { items: row.items, units: row.units, meters: row.tenths / 10, value: r(row.value), low: row.low, out: row.out, reorder: row.reorder }
 }
 
 // ---------------------------------------------------------------- documents

@@ -69,7 +69,7 @@ await step("sale: 3 thans of 20 m and 2 of 22.5 m, rate per meter; bill shows th
   // changing the bill number must not close the bill
   await page.getByRole("button", { name: "Change bill number" }).click()
   await page.getByLabel("New bill number").fill("B-77")
-  await page.getByRole("button", { name: "Save bill number" }).click()
+  await page.getByRole("button", { name: "Save number" }).click()
   await page.waitForSelector(".invoice-no >> text=B-77")
   if (!(await page.locator(".invoice-paper").isVisible())) throw new Error("the bill closed")
 })

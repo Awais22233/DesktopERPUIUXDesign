@@ -9,7 +9,7 @@ import { deleteColour, listColours, saveColour } from "./services/colours"
 import { addAccount, addMaster, saveParty, saveProduct, saveProductColors, setAccountActive } from "./services/catalog"
 import { removeProductImage, saveProductImage } from "./services/images"
 import { postCashClosing, postStockCount } from "./services/closing"
-import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment } from "./services/payments"
+import { adjustStock, postOpeningAccountBalance, postOpeningPartyBalance, postOpeningStock, postTransfer, recordExpense, recordReceipt, recordSupplierPayment, renumberExpense, renumberPayment } from "./services/payments"
 import { postPurchase, renumberPurchase, voidPurchase } from "./services/purchases"
 import { postExchange, postPurchaseReturn, postSaleReturn } from "./services/returns"
 import { postSale, voidSale, suggestInvoiceNo, renumberSale } from "./services/sales"
@@ -192,6 +192,19 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "purchase:renumber": (p) => ({ purchaseNo: renumberPurchase(db(), actor(), docId(db(), "purchases", p.id), p.purchaseNo) }),
     "sale:suggestNo": () => ({ invoiceNo: suggestInvoiceNo(db()) }),
     "sale:renumber": (p) => ({ invoiceNo: renumberSale(db(), actor(), docId(db(), "sales", p.id), p.invoiceNo) }),
+    "payment:renumber": (p) => {
+      const d = db()
+      const row = d.prepare("SELECT id FROM payments WHERE doc_no = ? COLLATE NOCASE").get(p.id) as { id: number } | undefined
+      if (!row) throw new AppError("NOT_FOUND", "Payment not found")
+      return { no: renumberPayment(d, actor(), row.id, p.no) }
+    },
+    "expense:renumber": (p) => {
+      const d = db()
+      let row = d.prepare("SELECT id FROM expenses WHERE reference = ? COLLATE NOCASE").get(p.id) as { id: number } | undefined
+      if (!row && /^EXP-\d+$/i.test(p.id)) row = d.prepare("SELECT id FROM expenses WHERE id = ? AND reference IS NULL").get(idNumber(p.id)) as { id: number } | undefined
+      if (!row) throw new AppError("NOT_FOUND", "Expense not found")
+      return { no: renumberExpense(d, actor(), row.id, p.no) }
+    },
     "sale:void": (p) => (voidSale(db(), actor(), docId(db(), "sales", p.id), p.reason), null),
     "purchase:void": (p) => (voidPurchase(db(), actor(), docId(db(), "purchases", p.id), p.reason), null),
 

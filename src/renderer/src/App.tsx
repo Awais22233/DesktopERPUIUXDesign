@@ -75,7 +75,7 @@ import {
   downloadFile,
 } from "./ui"
 import { fmtM, thanPrice } from "@shared/meters"
-import { money, today, setToday, L, type Collection, type Party, type Product, type Transaction } from "./data"
+import { money, today, setToday, L, type Collection, type Expense, type Party, type Product, type Transaction } from "./data"
 import type { Snapshot, AppUser as User } from "@shared/models"
 import { api } from "./backend"
 import { useSession } from "./Auth"
@@ -93,6 +93,7 @@ const emptyStore: Store = {
   parties: [],
   suppliers: [],
   collections: [],
+  supplierPayments: [],
   expenses: [],
   accounts: {},
   entries: [],
@@ -756,6 +757,24 @@ export default function App() {
             ]}
           />
         </Panel>
+        {supplier && (
+          <Panel title="Supplier payments" subtitle="Click a pay slip to open it, print it or change its number">
+            <DataTable
+              rows={store.supplierPayments}
+              pagination
+              empty="No supplier payments yet"
+              onRow={(c) => open("receipt", c)}
+              columns={[
+                { key: "date", label: "Date" },
+                { key: "id", label: "Slip no.", render: (c) => <span className="reference">{c.id}</span> },
+                { key: "party", label: "Supplier" },
+                { key: "amount", label: "Amount", right: true, render: (c) => <strong>{money(c.amount)}</strong> },
+                { key: "method", label: "Method" },
+                { key: "account", label: "Account" },
+              ]}
+            />
+          </Panel>
+        )}
         <div className="info-notice report-disclaimer">
           <BookOpen size={16} />
           Click any party to open their Khata, payments and account statement.
@@ -1134,6 +1153,16 @@ export default function App() {
               { key: "account", label: "Account" },
               { key: "notes", label: "Notes" },
               { key: "user", label: "Created by" },
+              {
+                key: "actions",
+                label: "",
+                render: (e) =>
+                  session.can("ledger.adjust") ? (
+                    <Button variant="secondary" onClick={() => open("expense-no", e)}>
+                      Change no.
+                    </Button>
+                  ) : null,
+              },
             ]}
           />
         </Panel>
@@ -1579,10 +1608,36 @@ export default function App() {
           />
         </Modal>
       )
+    if (type === "expense-no") {
+      const x = data as Expense
+      return (
+        <Modal title="Change expense number" description={`Now ${x.id}. Type the number written on the paper voucher.`} onClose={closeModal}>
+          <form
+            onSubmit={async (ev) => {
+              ev.preventDefault()
+              const no = String(new FormData(ev.currentTarget).get("no") ?? "").trim()
+              if (!no || no === x.id) return closeModal()
+              if (await run(() => api("expense:renumber", { id: x.id, no }))) {
+                closeModal()
+                notify(`Expense number changed to ${no}.`)
+              }
+            }}
+          >
+            <Field label="New number" required>
+              <Input name="no" defaultValue={x.id} maxLength={30} required autoFocus />
+            </Field>
+            <div className="modal-footer">
+              <Button type="button" onClick={closeModal}>Cancel</Button>
+              <Button type="submit" variant="primary">Save number</Button>
+            </div>
+          </form>
+        </Modal>
+      )
+    }
     if (type === "invoice" || type === "receipt")
       return (
         <Modal
-          title={type === "invoice" ? "Invoice preview" : "Recovery receipt"}
+          title={type === "invoice" ? "Invoice preview" : (data as Collection)?.supplier ? "Supplier pay slip" : "Recovery receipt"}
           wide
           onClose={closeModal}
         >
@@ -1595,7 +1650,17 @@ export default function App() {
             purchase={(data as Transaction | undefined)?.kind === "purchase"}
             canVoid={type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")}
             onRenumber={
-              type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")
+              type === "receipt" && session.can("ledger.adjust")
+                ? async (no) => {
+                    const c = data as Collection
+                    const res = await run(async () => (await api("payment:renumber", { id: c.id, no })).no)
+                    if (res) {
+                      setModal((m) => (m ? { ...m, data: { ...c, id: res } } : m))
+                      notify(`Number changed to ${res}.`)
+                    }
+                    return !!res
+                  }
+                : type === "invoice" && session.can((data as Transaction)?.kind === "purchase" ? "purchase.void" : "sale.void")
                 ? async (invoiceNo) => {
                     const res = await run(async () => ((data as Transaction).kind === "purchase" ? (await api("purchase:renumber", { id: (data as Transaction).id, purchaseNo: invoiceNo })).purchaseNo : (await api("sale:renumber", { id: (data as Transaction).id, invoiceNo })).invoiceNo))
                     if (res) {

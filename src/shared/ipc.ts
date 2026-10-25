@@ -115,6 +115,8 @@ export interface IpcContract {
   "sale:lastRate": { req: { partyId: Id; productId: Id }; res: { rate: number | null } }
   "purchase:renumber": { req: { id: string; purchaseNo: string }; res: { purchaseNo: string } }
   "sale:suggestNo": { req: undefined; res: { invoiceNo: string } }
+  "payment:renumber": { req: { id: string; no: string }; res: { no: string } }
+  "expense:renumber": { req: { id: string; no: string }; res: { no: string } }
   "sale:renumber": { req: { id: string; invoiceNo: string }; res: { invoiceNo: string } }
   "sale:void": { req: { id: string; reason: string }; res: null }
   "purchase:void": { req: { id: string; reason: string }; res: null }
@@ -161,7 +163,7 @@ export interface IpcContract {
   "health:get": { req: undefined; res: { integrityOk: boolean; lastBackupAt: string | null; problems: string[] } }
 }
 export type Channel = keyof IpcContract
-const CHANNEL_LIST = ["report:run", "sale:suggestNo", "sale:renumber", "purchase:renumber", "sale:lastRate", "ledger:get", "app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "products:list", "docs:list", "movements:list", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "product:colors", "colours:list", "colour:save", "colour:delete", "product:image", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "backup:clearFolder", "backup:testFolder", "backup:status", "backup:check", "restore:scan", "restore:chooseFolder", "restore:start", "health:get"] as Channel[]
+const CHANNEL_LIST = ["report:run", "sale:suggestNo", "sale:renumber", "purchase:renumber", "payment:renumber", "expense:renumber", "sale:lastRate", "ledger:get", "app:info", "license:status", "license:activate", "auth:status", "auth:setup", "auth:login", "auth:logout", "auth:changePassword", "snapshot:get", "products:list", "docs:list", "movements:list", "business:get", "business:set", "config:get", "config:setFlag", "sale:create", "purchase:create", "sale:void", "purchase:void", "receipt:create", "supplierPayment:create", "expense:create", "transfer:create", "stock:adjust", "stock:count", "opening:party", "opening:account", "opening:stock", "party:save", "product:save", "product:colors", "colours:list", "colour:save", "colour:delete", "product:image", "return:sale", "return:purchase", "exchange:create", "closing:create", "master:add", "account:add", "account:setActive", "settings:set", "sequence:set", "user:create", "user:setActive", "user:resetPassword", "role:setPermission", "backup:run", "backup:list", "backup:restore", "backup:chooseFolder", "backup:clearFolder", "backup:testFolder", "backup:status", "backup:check", "restore:scan", "restore:chooseFolder", "restore:start", "health:get"] as Channel[]
 export const CHANNELS: Channel[] = CHANNEL_LIST
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }

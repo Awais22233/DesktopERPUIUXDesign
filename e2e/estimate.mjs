@@ -56,7 +56,7 @@ await step("the bill shows the customer's address and phone and both people, in 
   await page.getByLabel("Bill design").selectOption({ label: "Estimate" })
   must((await page.locator(".invoice-paper").getAttribute("class")).includes("inv-estimate"), "estimate class")
   const t = await page.locator(".invoice-paper").textContent()
-  for (const need of ["Shahdani Medical Store", "Main Road, Pepel Chok", "0333-4445556", "Booked by", "Imran Arain", "0300-1112223", "Recovery by", "Bilal Ahmed", "0311-9998887", "Total # of items"]) must(t.includes(need), "bill is missing: " + need + "\n" + t.slice(0, 600))
+  for (const need of ["Prepared by:", "Shahdani Medical Store", "Main Road, Pepel Chok", "0333-4445556", "Booked by", "Imran Arain", "0300-1112223", "Recovery by", "Bilal Ahmed", "0311-9998887", "Total # of items"]) must(t.includes(need), "bill is missing: " + need + "\n" + t.slice(0, 600))
   await shot("estimate-bill")
   for (const d of ["Modern", "Classic", "Minimal", "Compact ledger", "Elegant"]) {
     await page.getByLabel("Bill design").selectOption({ label: d })

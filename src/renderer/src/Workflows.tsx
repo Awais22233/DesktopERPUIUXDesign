@@ -1851,21 +1851,20 @@ export function InvoicePreview({
             {!!doc?.partyPhone && <small className="meta-sub">Phone: {doc.partyPhone}</small>}
           </div>
           <div className="invoice-meta-right">
-            <span>Prepared by</span>
-            <strong>{transaction?.user || collection?.user || "—"}</strong>
+            <div className="meta-line">
+              <span>Prepared by:</span> <strong>{transaction?.user || collection?.user || "—"}</strong>
+            </div>
             {!!transaction?.bookedBy && (
-              <>
-                <span>Booked by</span>
-                <strong>{transaction.bookedBy}</strong>
-                {!!transaction.bookedPhone && <small className="meta-sub">{transaction.bookedPhone}</small>}
-              </>
+              <div className="meta-line">
+                <span>Booked by:</span> <strong>{transaction.bookedBy}</strong>
+                {!!transaction.bookedPhone && <small>{transaction.bookedPhone}</small>}
+              </div>
             )}
             {!!transaction?.recoveryBy && (
-              <>
-                <span>Recovery by</span>
-                <strong>{transaction.recoveryBy}</strong>
-                {!!transaction.recoveryPhone && <small className="meta-sub">{transaction.recoveryPhone}</small>}
-              </>
+              <div className="meta-line">
+                <span>Recovery by:</span> <strong>{transaction.recoveryBy}</strong>
+                {!!transaction.recoveryPhone && <small>{transaction.recoveryPhone}</small>}
+              </div>
             )}
           </div>
         </div>

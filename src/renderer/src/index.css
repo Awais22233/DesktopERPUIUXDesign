@@ -1139,3 +1139,16 @@ html[data-theme="dark"] .nav-item:hover, html[data-theme="dark"] .nav-item.activ
   .invoice-paper.inv-estimate { border-color: #000; }
 }
 html[data-theme="dark"] .invoice-paper.inv-estimate .invoice-doc h3 { color: #1b2233; }
+
+/* Bills never scroll: they are printed or shared as a picture, so every row must be visible. */
+.invoice-paper .table-scroll, .invoice-paper .table-wrapper, .invoice-paper .panel { overflow: visible; }
+/* Estimate: "Label: value" on one line, like the printed distributor bill. */
+.invoice-paper.inv-estimate .invoice-meta-right { display: grid; gap: 2px; justify-items: end; }
+.invoice-paper.inv-estimate .invoice-meta-right .meta-line { display: block; text-align: right; text-transform: uppercase; font-size: 11.5px; line-height: 1.5; }
+.invoice-paper.inv-estimate .invoice-meta-right .meta-line span { display: inline; margin: 0; font-size: 10px; letter-spacing: 1px; color: #3b4558; }
+.invoice-paper.inv-estimate .invoice-meta-right .meta-line strong { display: inline; font-size: 12.5px; margin-left: 4px; }
+.invoice-paper.inv-estimate .invoice-meta-right .meta-line small { margin-left: 6px; font-size: 10.5px; }
+.invoice-meta-right .meta-line { display: block; text-align: right; line-height: 1.5; }
+.invoice-meta-right .meta-line span, .invoice-meta-right .meta-line strong { display: inline; margin: 0; }
+.invoice-meta-right .meta-line small { display: inline; margin-left: 6px; color: inherit; font-size: 11px; }
+.thermal .invoice-meta-right .meta-line { text-align: left; }

@@ -73,6 +73,7 @@ await step("the next suggestion follows the last number; the customer's last rat
   await page.reload()
   await page.waitForSelector("text=Business overview", { timeout: 15000 }).catch(() => {})
   await nav("POS / Sales")
+  await page.waitForFunction(() => document.querySelector('input[aria-label="Bill number"]')?.value === "A-118", null, { timeout: 15000 }).catch(() => {})
   const v = await page.getByLabel("Bill number").inputValue()
   if (v !== "A-118") throw new Error("expected suggestion A-118, got " + v)
   await pickParty(page, "Gul Ahmed Store")

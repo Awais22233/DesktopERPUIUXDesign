@@ -57,3 +57,16 @@ describe("salesmen and recovery persons on the bill", () => {
     expect(code(() => postSale(c.db, c.owner, { partyId: c.party, lines: [{ variantId: c.blue, qty: 1, rate: 100 }], payments: [] }))).toBe("none")
   })
 })
+
+describe("a person switched off later", () => {
+  it("does not block editing the customer they were saved on, but cannot be newly chosen", async () => {
+    const c = await setup()
+    const sm = saveStaff(c.db, c.owner, { name: "Old Hand", phone: "0300", role: "salesman" })
+    saveParty(c.db, c.owner, "customer", { id: c.party, name: "Ali Traders", salesmanId: sm })
+    saveStaff(c.db, c.owner, { id: sm, name: "Old Hand", phone: "0300", role: "salesman", active: false })
+    expect(code(() => saveParty(c.db, c.owner, "customer", { id: c.party, name: "Ali Traders", phone: "0311", salesmanId: sm }))).toBe("none")
+    const gone = saveStaff(c.db, c.owner, { name: "Gone", role: "salesman" })
+    saveStaff(c.db, c.owner, { id: gone, name: "Gone", role: "salesman", active: false })
+    expect(code(() => saveParty(c.db, c.owner, "customer", { id: c.party, name: "Ali Traders", salesmanId: gone }))).toBe("INVALID_STATE")
+  })
+})

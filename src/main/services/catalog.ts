@@ -54,8 +54,10 @@ export function saveParty(db: DB, actor: Actor, kind: "customer" | "supplier", f
   return tx(db, () => {
     const id = savePartyRow(db, actor, kind, f)
     if (kind === "customer" && (f.salesmanId !== undefined || f.recoveryId !== undefined)) {
-      if (f.salesmanId) staffForBill(db, f.salesmanId, "salesman")
-      if (f.recoveryId) staffForBill(db, f.recoveryId, "recovery")
+      // Someone already saved on this party who was switched off later can stay; only a new choice is checked.
+      const was = db.prepare("SELECT salesman_id AS s, recovery_id AS r FROM parties WHERE id = ?").get(id) as { s: number | null; r: number | null }
+      if (f.salesmanId && f.salesmanId !== was.s) staffForBill(db, f.salesmanId, "salesman")
+      if (f.recoveryId && f.recoveryId !== was.r) staffForBill(db, f.recoveryId, "recovery")
       db.prepare("UPDATE parties SET salesman_id = ?, recovery_id = ? WHERE id = ? AND is_walk_in = 0").run(f.salesmanId ?? null, f.recoveryId ?? null, id)
     }
     return id

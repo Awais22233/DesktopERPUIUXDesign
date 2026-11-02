@@ -628,8 +628,9 @@ export function SalesWorkspace({
                   setParty(id)
                   setError("")
                   const p = parties.find((x) => x.id === id)
-                  setBookedBy(p?.salesmanId ?? "")
-                  setRecoveryBy(p?.recoveryId ?? "")
+                  const on = (id?: string) => (id && staff.some((x) => x.id === id && x.active) ? id : "")
+                  setBookedBy(on(p?.salesmanId))
+                  setRecoveryBy(on(p?.recoveryId))
                 }}
               />
               {onAddParty && (

@@ -79,4 +79,27 @@ describe("migrations", () => {
     expect((db.prepare("SELECT COUNT(*) n FROM variants").get() as { n: number }).n).toBe(5)
     expect(db.pragma("integrity_check", { simple: true })).toBe("ok")
   })
+
+  it("upgrading from schema 6 keeps every cash/bank entry, the balances and the bills, and the new kinds work", async () => {
+    const db = openDatabase(":memory:")
+    await migrate(db, migrations.filter((m) => m.id <= 6))
+    db.prepare("INSERT INTO accounts(name, type) VALUES ('Cash in hand','cash'), ('Bank','bank')").run()
+    db.prepare("INSERT INTO parties(name) VALUES ('Old Customer')").run()
+    db.prepare("INSERT INTO sales(invoice_no, ts, party_id, subtotal, total, paid) VALUES ('INV-00001','2026-01-01T10:00:00Z',1,50000,50000,20000)").run()
+    const kinds = ["opening", "sale_receipt", "customer_receipt", "supplier_payment", "purchase_payment", "expense", "transfer_in", "transfer_out", "void_reversal", "refund", "adjustment"]
+    const ins = db.prepare("INSERT INTO account_entries(ts, account_id, amount, kind, source_type, source_id, description) VALUES ('2026-01-01T10:00:00Z', ?, ?, ?, 'sale', 1, 'old')")
+    kinds.forEach((k, n) => ins.run(n % 2 === 0 ? 1 : 2, (n + 1) * (n % 3 === 0 ? -100 : 100), k))
+    const before = db.prepare("SELECT account_id, balance FROM v_account_balance ORDER BY account_id").all()
+    await migrate(db, migrations)
+    expect((db.prepare("SELECT COUNT(*) n FROM account_entries").get() as { n: number }).n).toBe(kinds.length)
+    expect(db.prepare("SELECT account_id, balance FROM v_account_balance ORDER BY account_id").all()).toEqual(before)
+    expect((db.prepare("SELECT kind FROM account_entries ORDER BY id").all() as { kind: string }[]).map((r) => r.kind)).toEqual(kinds)
+    // the old bill is untouched and has no salesman
+    expect(db.prepare("SELECT invoice_no, total, booked_by, recovery_by FROM sales").get()).toEqual({ invoice_no: "INV-00001", total: 50000, booked_by: null, recovery_by: null })
+    // the new entry kind is accepted, an unknown one still is not
+    db.prepare("INSERT INTO account_entries(ts, account_id, amount, kind) VALUES ('2026-02-01T00:00:00Z', 1, 500, 'fund_in')").run()
+    expect(() => db.prepare("INSERT INTO account_entries(ts, account_id, amount, kind) VALUES ('2026-02-01T00:00:00Z', 1, 500, 'made_up')").run()).toThrow()
+    expect(db.pragma("foreign_key_check")).toEqual([])
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok")
+  })
 })

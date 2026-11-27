@@ -44,6 +44,7 @@ import {
   Wallet,
   X,
   type LucideIcon,
+  Lock,
 } from "lucide-react"
 import Dashboard from "./Dashboard"
 import { Backup, Reports, Returns, Settings, Summary } from "./Management"
@@ -131,8 +132,8 @@ const navGroups: {
   {
     label: "FINANCE",
     items: [
-      { title: "Expenses", icon: Receipt },
-      { title: "Cash & Bank", icon: Landmark },
+      { title: "Expenses", icon: Receipt, perm: "expense.view" },
+      { title: "Cash & Bank", icon: Landmark, perm: "cashbank.view" },
       { title: "Reports", icon: FileBarChart },
     ],
   },
@@ -140,11 +141,12 @@ const navGroups: {
     label: "ADMINISTRATION",
     items: [
       { title: "Users & Permissions", icon: ShieldCheck, perm: "users.manage" },
-      { title: "Settings", icon: Settings2, perm: "settings.manage" },
     ],
   },
 ]
 const pageFlags: Record<string, FlagKey> = { Recovery: "recovery" }
+/** A page can be opened only by people who hold its permission, whichever button or link led to it. */
+const pagePerms: Record<string, Permission> = { Expenses: "expense.view", "Cash & Bank": "cashbank.view", Settings: "settings.manage", "Users & Permissions": "users.manage" }
 
 /**
  * The count sheet for a physical stock count. It shows one page of the catalogue at a time, searchable,
@@ -211,6 +213,7 @@ export default function App() {
   const [store, setStore] = useState<Store>(emptyStore)
   const [ready, setReady] = useState(false)
   const [page, setPage] = useState("Dashboard")
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false)
   const [modal, setModal] = useState<{
     type: string
     data?: unknown
@@ -244,6 +247,13 @@ export default function App() {
   const open = (type: string, data?: unknown) => setModal({ type, data })
   const navigate = (next: string) => {
     if (pageFlags[next] && !isEnabled(pageFlags[next])) return
+    if (pagePerms[next] && !session.can(pagePerms[next]!)) return
+    // Settings are not for everyday use: they ask for the password each time and lock again when you leave
+    if (next === "Settings" && !settingsUnlocked) {
+      setModal({ type: "settings-unlock" })
+      return
+    }
+    if (next !== "Settings") setSettingsUnlocked(false)
     if (next === "Sales Report") {
       setReport("Daily Sales")
       setPage("Reports")
@@ -1543,6 +1553,7 @@ export default function App() {
       case "Users & Permissions":
         return usersPage()
       case "Settings":
+        if (!settingsUnlocked) return null
         return <Settings notify={notify} masters={store.masters} run={run} canManage={session.can("settings.manage")} />
       case "Backup & Restore":
         return <Backup notify={notify} canRestore={session.can("backup.restore")} secondaryDir={store.masters.settings["backup.secondary_dir"] ?? ""} onChanged={() => void refresh()} />
@@ -1801,6 +1812,34 @@ export default function App() {
         </Modal>
       )
     }
+    if (type === "settings-unlock")
+      return (
+        <Modal title="Settings are locked" onClose={closeModal}>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const password = String(new FormData(e.currentTarget).get("password"))
+              if (await run(() => api("auth:confirm", { password }))) {
+                setSettingsUnlocked(true)
+                setModal(null)
+                setPage("Settings")
+                setQuery("")
+                window.scrollTo(0, 0)
+              }
+            }}
+          >
+            <div className="modal-body">
+              <Field label="Your password" required hint="Settings change how the whole program works, so please confirm it is you.">
+                <Input name="password" type="password" required autoFocus />
+              </Field>
+            </div>
+            <div className="modal-footer">
+              <Button type="button" onClick={closeModal}>Cancel</Button>
+              <Button variant="primary" type="submit">Open settings</Button>
+            </div>
+          </form>
+        </Modal>
+      )
     if (type === "logout")
       return (
         <Modal title="Lock this workspace?" onClose={closeModal}>
@@ -1815,7 +1854,7 @@ export default function App() {
               variant="primary"
               onClick={() => {
                 closeModal()
-                clearDrafts(), void session.logout()
+                clearDrafts(), setSettingsUnlocked(false), void session.logout()
               }}
             >
               Lock workspace
@@ -2017,11 +2056,12 @@ export default function App() {
           <ShieldCheck size={14} className="muted" />
         </div>
         <nav className="main-navigation">
-          {navGroups.map((group) => (
+          {navGroups.map((group) => ({ group, items: group.items.filter((item) => (!item.flag || isEnabled(item.flag)) && (!item.perm || session.can(item.perm))) }))
+            .filter(({ items }) => items.length > 0)
+            .map(({ group, items }) => (
             <div className="nav-group" key={group.label}>
               <div className="nav-label">{group.label}</div>
-              {group.items
-                .filter((item) => (!item.flag || isEnabled(item.flag)) && (!item.perm || session.can(item.perm)))
+              {items
                 .map((item) => (
                   <Action
                     key={item.title}
@@ -2043,6 +2083,17 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          {session.can("settings.manage") && (
+            <Action
+              className={`nav-item nav-quiet ${page === "Settings" ? "active" : ""}`}
+              onClick={() => navigate("Settings")}
+              title="Settings (asks for your password)"
+            >
+              <Settings2 size={18} />
+              <span>Settings</span>
+              <Lock size={13} className="muted" />
+            </Action>
+          )}
           <Action
             className={`nav-item ${
               page === "Backup & Restore" ? "active" : ""
@@ -2214,6 +2265,8 @@ const PERMISSION_LABELS: [string, string, boolean][] = [
   ["purchase.void", "Cancel purchases", true],
   ["payment.create", "Receive and make payments, transfer money", false],
   ["expense.create", "Record expenses", false],
+  ["expense.view", "See the Expenses page", false],
+  ["cashbank.view", "See the Cash & Bank page", false],
   ["return.create", "Record returns and exchanges", false],
   ["return.no_invoice", "Accept a return without an invoice", true],
   ["stock.adjust", "Adjust stock and do stock counts", true],

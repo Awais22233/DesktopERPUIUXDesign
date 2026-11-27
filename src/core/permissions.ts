@@ -12,6 +12,8 @@ export const PERMISSIONS = [
   "purchase.void",
   "payment.create",
   "expense.create",
+  "expense.view",
+  "cashbank.view",
   "stock.adjust",
   "return.create",
   "return.no_invoice",

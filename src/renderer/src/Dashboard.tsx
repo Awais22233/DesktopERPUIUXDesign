@@ -236,7 +236,7 @@ export default function Dashboard({
           </Button>
         </div>
       </div>
-      <GettingStarted setup={d.setup} navigate={navigate} open={open} />
+      {session.can("settings.manage") && <GettingStarted setup={d.setup} navigate={navigate} open={open} />}
       <div className="kpi-grid">
         {kpis.map((k) => (
           <div className={`kpi-card kpi-${k.tone}`} key={k.title}>
@@ -276,13 +276,15 @@ export default function Dashboard({
             page: "Suppliers",
           },
           ...(isEnabled("profit") ? [{ label: "Stock value", amount: d.stockValue, icon: Package, tone: "indigo", page: "Inventory" }] : []),
-          {
-            label: "Today's expenses",
-            amount: d.todayExpenses,
-            icon: Receipt,
-            tone: "neutral",
-            page: "Expenses",
-          },
+          ...(session.can("expense.view")
+            ? [{
+                label: "Today's expenses",
+                amount: d.todayExpenses,
+                icon: Receipt,
+                tone: "neutral",
+                page: "Expenses",
+              }]
+            : []),
         ].map((item) => (
           <Action
             key={item.label}
@@ -500,23 +502,27 @@ export default function Dashboard({
                 <strong className="green-text">{money(d.todayRecovery)}</strong>
               </div>
             )}
-            <div>
-              <span>
-                <span className="payment-row-icon neutral">
-                  <ArrowUpRight size={15} />
+            {session.can("expense.view") && (
+              <div>
+                <span>
+                  <span className="payment-row-icon neutral">
+                    <ArrowUpRight size={15} />
+                  </span>
+                  Expenses paid
                 </span>
-                Expenses paid
-              </span>
-              <strong>{money(d.todayExpenses)}</strong>
-            </div>
+                <strong>{money(d.todayExpenses)}</strong>
+              </div>
+            )}
           </div>
-          <Action
-            className="payment-link"
-            onClick={() => navigate("Cash & Bank")}
-          >
-            View cash & bank
-            <ArrowRight size={14} />
-          </Action>
+          {session.can("cashbank.view") && (
+            <Action
+              className="payment-link"
+              onClick={() => navigate("Cash & Bank")}
+            >
+              View cash & bank
+              <ArrowRight size={14} />
+            </Action>
+          )}
         </Panel>
       </div>
       <div className="dashboard-tables">

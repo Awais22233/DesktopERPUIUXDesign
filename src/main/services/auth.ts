@@ -29,7 +29,7 @@ const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   "Owner / Admin": PERMISSIONS,
   Manager: PERMISSIONS.filter((p: Permission) => !["users.manage", "backup.restore", "settings.manage"].includes(p)),
   "Sales User": ["sale.create", "return.create", "party.manage", "report.view"],
-  Accountant: ["payment.create", "expense.create", "ledger.adjust", "cash.close", "party.manage", "report.view", "report.export"],
+  Accountant: ["payment.create", "expense.create", "expense.view", "cashbank.view", "ledger.adjust", "cash.close", "party.manage", "report.view", "report.export"],
   "Store Manager": ["purchase.create", "stock.adjust", "catalog.manage", "report.view"],
   "Recovery Staff": ["payment.create", "party.manage", "report.view"],
   Viewer: ["report.view"],

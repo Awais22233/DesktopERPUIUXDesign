@@ -6,6 +6,7 @@ import { sql as m005 } from "./005_colour_library"
 import { sql as m006 } from "./006_meter_thans"
 import { sql as m007 } from "./007_funds"
 import { sql as m008 } from "./008_staff"
+import { sql as m009 } from "./009_view_permissions"
 
 export interface Migration {
   id: number
@@ -23,4 +24,5 @@ export const migrations: Migration[] = [
   { id: 6, name: "meter_thans", sql: m006 },
   { id: 7, name: "funds", sql: m007 },
   { id: 8, name: "staff", sql: m008 },
+  { id: 9, name: "view_permissions", sql: m009 },
 ]

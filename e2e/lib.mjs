@@ -55,7 +55,18 @@ export async function launch(profile, client, opts = {}) {
       if (process.env.E2E_DEBUG) console.log((await page.locator("body").innerText().catch(() => "")).slice(0, 2500))
     }
   }
-  const nav = (name) => page.locator("aside, nav").getByText(name, { exact: true }).first().click()
+  const nav = async (name) => {
+    await page.locator("aside, nav").getByText(name, { exact: true }).first().click()
+    // Settings ask for the password every time; the suites sign in with secret1
+    if (name === "Settings") {
+      // already unlocked (still on the Settings page) means no question is asked
+      const box = page.locator('[role=dialog] input[name=password]')
+      if (await box.waitFor({ state: "visible", timeout: 2500 }).then(() => true, () => false)) {
+        await box.fill("secret1")
+        await page.getByRole("dialog").getByRole("button", { name: "Open settings" }).click()
+      }
+    }
+  }
   const finish = async () => {
     for (const p of problems) console.log("PROBLEM " + p)
     await app.close().catch(() => {})

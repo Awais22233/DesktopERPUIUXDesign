@@ -140,8 +140,12 @@ export function createCommands(ctx: Ctx): Required<Handlers> {
     "auth:login": (p) => ctx.session.login(db(), p.username, p.password),
     "auth:logout": () => (ctx.session.logout(db()), null),
     "auth:changePassword": (p) => (ctx.session.changePassword(db(), p.current, p.next), null),
+    "auth:confirm": (p) => (ctx.session.confirmPassword(db(), p.password), null),
 
-    "snapshot:get": () => (actor(), buildSnapshot(db())),
+    "snapshot:get": () => {
+      const a = actor()
+      return buildSnapshot(db(), { expenses: a.permissions.has("expense.view"), cashbank: a.permissions.has("cashbank.view") })
+    },
     "products:list": (p) => (actor(), { ...listProducts(db(), p), summary: inventorySummary(db()) }),
     "docs:list": (p) => (actor(), listDocs(db(), p)),
     "movements:list": (p) => (actor(), listMovements(db(), p)),

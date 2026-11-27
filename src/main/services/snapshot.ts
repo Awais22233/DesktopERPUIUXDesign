@@ -113,7 +113,7 @@ export function buildMasters(db: DB): Masters {
   }
 }
 
-export function buildSnapshot(db: DB): Snapshot {
+export function buildSnapshot(db: DB, see: { expenses?: boolean; cashbank?: boolean } = {}): Snapshot {
   const off = offsetMinutes(db)
   const nowIso = new Date().toISOString()
   const today = bizDate(nowIso, off)
@@ -189,7 +189,12 @@ export function buildSnapshot(db: DB): Snapshot {
 
   return {
     today, historyFrom, walkInId: walk ? fmtId("PTY", walk.id) : "",
-    parties, suppliers, collections, supplierPayments, expenses, accounts, entries, users, audits, returns, closings,
+    parties, suppliers, collections, supplierPayments,
+    // somebody without the permission gets no expense or cash/bank history at all, not just a hidden menu
+    expenses: see.expenses === false ? [] : expenses,
+    accounts,
+    entries: see.cashbank === false ? [] : entries,
+    users, audits, returns, closings,
     masters: buildMasters(db),
     dashboard: buildDashboard(db, today),
   }

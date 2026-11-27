@@ -78,6 +78,21 @@ export class Session {
     this.userId = null
   }
 
+  /** Asks the signed-in person for their password again before a sensitive screen (the same attempt limit as signing in). */
+  confirmPassword(db: DB, password: string, now = Date.now()): void {
+    const actor = this.actor(db)
+    const key = `confirm:${actor.userId}`
+    const f = this.fails.get(key)
+    if (f && f.until > now) throw new AppError("FORBIDDEN", `Too many attempts. Try again in ${Math.ceil((f.until - now) / 1000)} seconds.`)
+    const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(actor.userId) as { password_hash: string }
+    if (!verifyPassword(password, row.password_hash)) {
+      const n = (f && f.until <= now && f.n >= MAX_FAILS ? 0 : (f?.n ?? 0)) + 1
+      this.fails.set(key, { n, until: n >= MAX_FAILS ? now + LOCK_MS : 0 })
+      throw new AppError("FORBIDDEN", "The password is not correct")
+    }
+    this.fails.delete(key)
+  }
+
   changePassword(db: DB, current: string, next: string): void {
     const actor = this.actor(db)
     const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(actor.userId) as { password_hash: string }
